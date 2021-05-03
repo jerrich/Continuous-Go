@@ -3,845 +3,1376 @@ from pygame.locals import *
 import sys, os
 import time
 import math
+import copy
 
-BOARDWIDTH = 19
-BOARDHEIGHT = 19
-#DISPLAYSURF = pygame.display.set_mode((WINDOWWIDTH, WINDOWHEIGHT))
-#print(pygame.display.get_surface())
 DISPLAYSURF = pygame.display.set_mode(flags=pygame.RESIZABLE)
 #my computer is 1366 by 768 (except for bar at top: it is 705 with this bar)
+#my new computer is 1536 by 845
 WINDOWWIDTH = pygame.Surface.get_size(DISPLAYSURF)[0]
 WINDOWHEIGHT = pygame.Surface.get_size(DISPLAYSURF)[1] - 63 #subtract 63 to account for taskbar
-SPACESIZE = max(20, int(min(WINDOWWIDTH, WINDOWHEIGHT) / 24)) #pixels in one space; adjusted to screen size, no smaller than 20
-OUTERSURF = 2 #SPACESIZE lengths between board and outer area
-DRAWINGLENGTH = SPACESIZE * 2 #length the user may draw in a turn
-EPSILON = 0.1 #drawing length margin of error
-XMARGIN = int((WINDOWWIDTH - ((BOARDWIDTH - 1) * SPACESIZE)) / 2)
-YMARGIN = int((WINDOWHEIGHT - ((BOARDHEIGHT - 1) * SPACESIZE)) / 2)
-INTERSECTDIST = 1.95 #closest distance a player's line can come within contacting the other player's lines
-#INTERSECTDIST = 5 #temp
+#WINDOWHEIGHT = pygame.Surface.get_size(DISPLAYSURF)[1]
+SPACESIZE = 35 #pixels in one board space; adjust later
+SQUARE = SPACESIZE * SPACESIZE
+#BOARDWIDTH = 19 #rows on board
+#BOARDHEIGHT = 19 #columns on board
+BOARDWIDTH = 5
+BOARDHEIGHT = 5
+KOMI = SQUARE #temporary; adjust later
 
-MAXMAGNET = 10 #magnet ranges from 0 through MAXMAGNET
-SLIDERLEFT = 50 #location of left of slider
-SLIDERRIGHT = SLIDERLEFT + MAXMAGNET * 13 #location of right of slider
-SLIDERDIVISION = (SLIDERRIGHT - SLIDERLEFT) / MAXMAGNET #divides slider into sections to show location of circle
-CLICKDIVISION = (SLIDERRIGHT - SLIDERLEFT) / (MAXMAGNET + 1) #divides slider into sections to process mouse click
-SLIDERHEIGHT = WINDOWHEIGHT - 250
-SLIDERRECT = pygame.Rect(SLIDERLEFT, SLIDERHEIGHT, SLIDERRIGHT - SLIDERLEFT, 12) #slider rectangle
+BOARDMARGIN = 2 * SPACESIZE #length of the board's margin, separating the playable area from the table
+TABLEXMARGIN = int((WINDOWWIDTH - (2 * BOARDMARGIN + (BOARDWIDTH - 1) * SPACESIZE)) / 2) #table space between screen edge and board horizontally
+TABLEYMARGIN = int((WINDOWHEIGHT - (2 * BOARDMARGIN + (BOARDHEIGHT - 1) * SPACESIZE)) / 2) #table space between screen edge and board vertically
 
-#                         R    G    B
-BLACK     = pygame.Color( 0 ,  0 ,  0 )
-WHITE     = pygame.Color(255, 255, 255)
-TAN       = pygame.Color(227, 195, 122)
-GRAY      = pygame.Color(128, 128, 128)
-GRAYALPHA = pygame.Color(128, 128, 128, 100)
-RED       = pygame.Color(255,  0 ,  0 )
-GREEN     = pygame.Color( 0 , 255,  0 )
-LIGHTGRAY = pygame.Color(200, 200, 200)
+MAXDRAW = SPACESIZE * 2 #length the user may draw in a turn
 
-TEXTCOLOR = WHITE
-BGCOLOR = TAN #background color of board and surface surrounding board
-OUTERBGCOLOR = GRAY #background color of area surrounding surface, consider changing
-GRIDLINECOLOR = GRAYALPHA
-DRAWCOLOR = RED #color of potential lines and dots indicating click
-SLIDERCOLOR = LIGHTGRAY
-SLIDERCIRCLECOLOR = GREEN
+SCORETHRESHOLD = SQUARE #temp threshold, fix later
+
+#                          R    G    B    A
+BLACK       = pygame.Color(0,   0,   0)
+WHITE       = pygame.Color(255, 255, 255)
+TAN         = pygame.Color(227, 195, 122)
+GRAY        = pygame.Color(128, 128, 128)
+GRAYALPHA   = pygame.Color(128, 128, 128, 100)
+RED         = pygame.Color(255, 0,   0)
+GREEN       = pygame.Color(0,   255, 0)
+LIGHTGRAY   = pygame.Color(200, 200, 200)
+BLUE        = pygame.Color(0,   0,   192)
+
+TEXTCOLOR           = WHITE
+BOARDCOLOR          = TAN #background color of board, including margins
+TABLECOLOR          = GRAY #background color of table, the area surrounding the board; consider changing
+GRIDLINECOLOR       = GRAYALPHA
+PROJECTIONCOLOR     = RED #color of potential lines and dots indicating click
+SLIDERCOLOR         = LIGHTGRAY
+SLIDERCIRCLECOLOR   = GREEN
+BUTTONCOLOR         = BLUE
+
+
+
+
+class button():
+    def __init__(self, color, x, y, width, height, text):
+        self.color = color
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.text = text
+
+    def draw(self, outline=None):
+        #draws a button
+        if outline:
+            pygame.draw.rect(DISPLAYSURF, outline, (self.x - 2, self.y - 2, self.width + 4, self.height + 4), 0)
+
+        pygame.draw.rect(DISPLAYSURF, self.color, (self.x, self.y, self.width, self.height), 0)
+
+        if self.text != '':
+            font = pygame.font.SysFont('comicsans', 20)
+            text = font.render(self.text, 1, (0, 0, 0))
+            DISPLAYSURF.blit(text, (
+            self.x + (self.width / 2 - text.get_width() / 2), self.y + (self.height / 2 - text.get_height() / 2)))
+
+    def isOver(self, pos):
+        # Pos is the mouse position or a tuple of (x,y) coordinates
+        if pos[0] > self.x and pos[0] < self.x + self.width:
+            if pos[1] > self.y and pos[1] < self.y + self.height:
+                return True
+
+        return False
+
+
+
+
+CHECKBLACKAREASBUTTON = button(BLUE, 20, 70, 210, 20, "CHECK BLACK SECTION AREAS")
+CHECKWHITEAREASBUTTON = button(BLUE, 20, 120, 210, 20, "CHECK WHITE SECTION AREAS")
+DECREASEMAGNETBUTTON = button(BLUE, 20, 200, 20, 20, "<-")
+INCREASEMAGNETBUTTON = button(BLUE, 80, 200, 20, 20, "->")
+#ENDTURNBUTTON
+#UNDOBUTTON
+DRAWBUTTON = button(BLUE, 20, 300, 100, 20, "DRAW GAME")
+PASSBUTTON = button(BLUE, 20, 400, 60, 20, "PASS")
+SCOREBUTTON = button(BLUE, 20, 500, 100, 20, "SCORE GAME")
+NEWGAMEBUTTON = button(BLUE, 20, 600, 100, 20, "NEW GAME")
+RESUMEBUTTON = button(BLUE, 20, 100, 100, 20, "RESUME PLAY")
+
+#SPACESIZE 35:
+#bottom right is on board borders: x: 1153 -> 1154, y: 776 -> 777
+#bottom right margin borders: x: 1083 -> 1084, y: 706 -> 707
+#margin borders: top left: (453, 76), bottom right: (1083, 706)
 
 def main():
-    COUNT = 0 #temp
-    changed = False #variable to keep track of whether the program has artificially adjusted the mouse's position
-    adjustedPos = (-4 * SPACESIZE, -4 * SPACESIZE) #position of this artificial adjustment; initially set to a place off the board
-    potentialLine = False #variable to keep track of whether a potential line is currently being drawn
-    potentialOffBoard = None #special case variable to identify when a potential line starts off board
-    magnetDist = 4 #initial magnet strength value
-    cutOffBreak = False #variable to keep track of whether a drawn line was cut off for being too close to an opponent's line
     global FONT
     pygame.init()
     pygame.display.set_caption('Continuous Go')
     FONT = pygame.font.Font('freesansbold.ttf', 16)
-    mouse = pygame.mouse
-    #fpsClock = pygame.time.Clock()
-    #canvas = DISPLAYSURF.copy()
-    #canvas.fill(BGCOLOR)
-    dots = [] #keeps track of points and lines drawn as series of connected points in current drawing
-    turn = 'black' #black always goes first
-    #DISPLAYSURF.fill(BGCOLOR)
-    #DISPLAYSURF.blit(canvas, (0, 0))
-    #pygame.display.update()
-    turnLength = 0 #length of lines drawn so far
-    mainBoard = [] #keeps track of everything drawn on board
-    drawBoard(mainBoard)
-    drawTurn(turn)
-    drawLengthNum(turnLength)
-    drawSlider(magnetDist)
-    pygame.display.update()
 
+
+    board = getNewBoard() #keeps track of pixels drawn
+    boardLines = [] #keeps track of lines drawn
+    magnetDist = 4 #starting mouse magnet distance, can adjust later
+    turn = "black" #black always goes first
+    turnLength = 0 #keeps track of the length of a turn
+    click = []
+    continuousDraw = False  #keeps track of whether the user is in the process of making a continuous draw
+    pixelsDrawn = []
+    drawBoard(boardLines, turn, turnLength, magnetDist)
     while True:
-        #print(pygame.Surface.get_size(pygame.display.get_surface()))
-        #left_pressed, middle_pressed, right_pressed = mouse.get_pressed()
         for event in pygame.event.get():
-            checkForQuit(event)          
-
-            if not isOnSurface(mouse.get_pos()):
+            position = convertScreenToBoard(pygame.mouse.get_pos())
+            if isOnBoard(position):
                 if event.type == MOUSEBUTTONDOWN:
-                    (x, y) = mouse.get_pos()
-                    if SLIDERRECT.collidepoint(x, y):
-                        magnetDist = int((x - SLIDERLEFT) / CLICKDIVISION)
-                        drawBoard(mainBoard)
-                        drawTurn(turn)
-                        drawLengthNum(turnLength)
-                        drawSlider(magnetDist)
-                        pygame.display.update()
-                continue
-
-            if dist(mouse.get_pos(), adjustedPos) >= 1.5: #sqrt(2) < 1.5 < 2
-                changed = False
-            if not changed:
-                closestLine = findClosestLine(mainBoard, mouse.get_pos(), turn, magnetDist)
-                if closestLine != None:
-                    #mouse is close to a line, so move the mouse to that line
-                    mouse.set_pos(closestLine)
-                    adjustedPos = closestLine
-                    changed = True
-
-            if event.type == MOUSEBUTTONDOWN:
-                drawStraight = False #variable to keep track of whether user is drawing straight (as opposed to free-hand), initially False
-                firstClickLocation = mouse.get_pos() #keeps track of initial click location
-                drawBegin = True #tracks whether user is begining a free-hand draw; if so, firstClickLocation is used; initially True
-                while True:
-                    endTurn = False #indicator that a section of a turn is over; occurs upon stopping a draw or drawing past DRAWINGLENGTH
-                    for event in pygame.event.get():
-                        checkForQuit(event)
-
-                        if not isOnSurface(mouse.get_pos()):
-                            if event.type == MOUSEBUTTONDOWN:
-                                (x, y) = mouse.get_pos()
-                                if SLIDERRECT.collidepoint(x, y):
-                                    magnetDist = int((x - SLIDERLEFT) / CLICKDIVISION)
-                                drawBoard(mainBoard)
-                                drawTurn(turn)
-                                drawLengthNum(turnLength)
-                                drawSlider(magnetDist)
-                                pygame.display.update()
-                            continue
-
-                        if event.type == MOUSEBUTTONUP:
-                            if len(dots) == 0: #user is starting a straight draw
-                                drawStraight = True
-                                pygame.draw.circle(DISPLAYSURF, DRAWCOLOR, mouse.get_pos(), 2)
-                                pygame.display.update()
-                                dots.append(mouse.get_pos())
-                                drawBegin = False
-                                continue
-                            #user is stopping a draw
-                            endTurn = True
-                            break
-                        elif drawBegin:
-                            dots.append(firstClickLocation)
-                            drawBegin = False
-                        if drawStraight:
-                            if dist(mouse.get_pos(), adjustedPos) >= 1.5: #sqrt(2) < 1.5 < 2
-                                changed = False
-                            if not changed:
-                                closestLine = findClosestLine(mainBoard, mouse.get_pos(), turn, magnetDist)
-                                if closestLine != None:
-                                    #mouse is close to a line, so move the mouse to that line
-                                    mouse.set_pos(closestLine)
-                                    adjustedPos = closestLine
-                                    changed = True
-
-                            if event.type == MOUSEBUTTONDOWN:
-                                drawStraight = False
-                                potentialLine = False
-                                potentialOffBoard = None
-                                drawBoard(mainBoard)
-                                drawTurn(turn)
-                                drawLengthNum(turnLength)
-                                drawSlider(magnetDist)
-                                pygame.display.update()
-                            else:
-                                dots.append(mouse.get_pos())
-                                potentialLine = True
-                        if drawStraight == False:
-                            dots.append(mouse.get_pos())
-                        if potentialOffBoard:
-                            dots[-2] = potentialOffBoard
-                        if len(dots) > 1 and (not isOnBoard(dots[-2]) or not isOnBoard(dots[-1])): #drew outside board's boundary
-                            if boundaryLineFix(dots[-2], dots[-1]) == None: #line drawn was entirely off the board
-                                if potentialLine:
-                                    del dots[-1]
-
-                                    drawBoard(mainBoard)
-                                    drawTurn(turn)
-                                    drawLengthNum(turnLength)
-                                    drawSlider(magnetDist)
-                                    #pygame.draw.circle(DISPLAYSURF, DRAWCOLOR, dots[-1], 2)
-                                    pygame.draw.circle(DISPLAYSURF, DRAWCOLOR, (round(dots[-1][0]), round(dots[-1][1])), 2)
-                                    pygame.display.update()
-
-                                    continue
-                                last = dots[-1]
-                                del dots[-1]
-                                turnLength += drawnLength(dots)
-                                dots = [last]
-                                continue
-                            else: #line was drawn partially off board and partially on
-                                if drawStraight and not isOnBoard(dots[-2]):
-                                    potentialOffBoard = dots[-2]
-                                dots[-2], dots[-1] = boundaryLineFix(dots[-2], dots[-1])
-
-                        #if len(dots) > 1 and not potentialLine:
-                        if len(dots) > 1: #check if line should be cut off near intersections with opponent's lines
-                            origDots1 = dots[-2]
-                            origDots2 = dots[-1]
-                            cutOff = checkIntersection(mainBoard, (dots[-2], dots[-1]), turn)
-                            del dots[-1]
-                            del dots[-1]
-
-                            #potentialOffBoard = origDots1 #keep?
-                            
-                            if cutOff != None:
-                                #del dots[-1]
-                                dots.append(cutOff[0])
-                                dots.append(cutOff[1])
-                                #mainBoard.append((color(turn), dots[-2], dots[-1]))
-                                if cutOff[0] != origDots1 or cutOff[1] != origDots2:
-                                    cutOffBreak = True
-                            else:
-                                #if potentialLine and drawStraight: #FIX
-                                if drawStraight:
-                                    potentialOffBoard = origDots1
-                                    dots.append(origDots1)
-                                else:
-                                    endTurn = True
-                                    break
-
-                        if turnLength + drawnLength(dots) > DRAWINGLENGTH: #too long because of quick drawing or just at DRAWINGLENGTH limit
-                            overDrawnDot = dots[-1]
-                            overDrawnLength = turnLength + drawnLength(dots)
-                            del dots[-1]
-                            underDrawnDot = dots[-1]
-                            underDrawnLength = turnLength + drawnLength(dots)
-                            newDot = divideLine(overDrawnDot, overDrawnLength, underDrawnDot, underDrawnLength)
-                            dots.append(newDot)
-                            if not potentialLine:
-                                #cutOff = checkIntersection(mainBoard, (dots[-2], dots[-1]), turn)
-                                #del dots[-1]
-                                #del dots[-1]
-                                #if cutOff != None:
-                                #    dots.append(cutOff[0])
-                                #    dots.append(cutOff[1])
-                                #    mainBoard.append((color(turn), dots[-2], dots[-1]))
-
-                                #print(dots[-2])
-                                #print(dots[-1])
-
-                                mainBoard.append((color(turn), dots[-2], dots[-1]))
-                                
-                                endTurn = True
-                                break
-                        if len(dots) > 1:
-                            if potentialLine:
-                                mainBoard.append((DRAWCOLOR, dots[-2], dots[-1]))
-                                drawBoard(mainBoard)
-                                drawTurn(turn)
-                                drawLengthNum(turnLength)
-                                drawSlider(magnetDist)
-                                if potentialOffBoard:
-                                    #pygame.draw.circle(DISPLAYSURF, DRAWCOLOR, potentialOffBoard, 2)
-                                    pygame.draw.circle(DISPLAYSURF, DRAWCOLOR, (round(potentialOffBoard[0]), round(potentialOffBoard[1])), 2)
-                                pygame.display.update()
-                                del dots[-1]
-                                del mainBoard[-1]
-                                potentialLine = False
-                                dots[-1] = origDots1 #attempt
-                                continue
-                            #cutOff = checkIntersection(mainBoard, (dots[-2], dots[-1]), turn)
-                            #del dots[-1]
-                            #del dots[-1]
-                            #if cutOff != None:
-                            #    dots.append(cutOff[0])
-                            #    dots.append(cutOff[1])
-                            #    mainBoard.append((color(turn), dots[-2], dots[-1]))
-                            #else:
-                            #    endTurn = True
-                            #    break
-                            
-                            mainBoard.append((color(turn), dots[-2], dots[-1]))
-                            if cutOffBreak:
-                                endTurn = True
-                                break
-                            drawBoard(mainBoard)
-                            drawTurn(turn)
-                            drawLengthNum(turnLength + drawnLength(dots))
-                            drawSlider(magnetDist)
-                            pygame.display.update()
-                        if turnLength + drawnLength(dots) > DRAWINGLENGTH - EPSILON: #IS THIS NECESSARY?
-                            endTurn = True
-                            break
-                    if endTurn:
-                        turnLength += drawnLength(dots)
-                        drawBoard(mainBoard)
-                        drawTurn(turn)
-                        drawLengthNum(turnLength)
-                        drawSlider(magnetDist)
-                        pygame.display.update()
-                        if turnLength >= DRAWINGLENGTH - EPSILON:
+                    if len(click) == 0:
+                        continuousDraw = True
+                        startPosition = position
+                    recentClick = True #flag that user has clicked and not moved the mouse
+                elif event.type == MOUSEBUTTONUP:
+                    if recentClick:
+                        click.append(position)
+                        if len(click) == 2:
+                            x = findLine(click[0], click[1], turn, board, turnLength)
+                            if len(x) > 0:
+                                for dot in x:
+                                    board[dot[1]][dot[0]] = turn
+                                    pixelsDrawn.append((dot[0], dot[1]))
+                                boardLines.append((x[0], x[-1], turn))
+                                turnLength += max(1, lineDistance(x[0], x[-1]))
+                                if turnLength >= (MAXDRAW * 0.97): #temporary threshold: figure out later
+                                    turn = opposite(turn)
+                                    turnLength = 0
+                                drawBoard(boardLines, turn, turnLength, magnetDist)
+                            click = []
+                        recentClick = False
+                    continuousDraw = False
+                elif event.type == MOUSEMOTION:
+                    if continuousDraw:
+                        x = findLine(startPosition, position, turn, board, turnLength)
+                        startPosition = position
+                        if len(x) > 0:
+                            for dot in x:
+                                board[dot[1]][dot[0]] = turn
+                            boardLines.append((x[0], x[-1], turn))
+                            turnLength += lineDistance(x[0], x[-1])
+                            if x[-1] != position: #line has been cut off
+                                continuousDraw = False
+                            if turnLength >= (MAXDRAW * 0.97): #temporary threshold: figure out later
+                                turn = opposite(turn)
+                                turnLength = 0
+                                continuousDraw = False
+                            drawBoard(boardLines, turn, turnLength, magnetDist)
+                    else:
+                        jump = findClosestPixel(board, position, turn, magnetDist)
+                        if jump:
+                            pygame.mouse.set_pos(convertBoardToScreen(jump))
+                            position = jump
+                        drawBoard(boardLines, turn, turnLength, magnetDist)
+                        #pygame.display.update()
+                        if len(click) == 1:
+                            x = findLine(click[0], position, turn, board, turnLength)
+                            if len(x) > 0:
+                                pygame.draw.line(DISPLAYSURF, PROJECTIONCOLOR, convertBoardToScreen(x[0]), convertBoardToScreen(x[-1]))
+                    recentClick = False
+            else:
+                if event.type == MOUSEBUTTONDOWN:
+                    recentClick = True
+                elif event.type == MOUSEBUTTONUP:
+                    if recentClick:
+                        position = pygame.mouse.get_pos()
+                        if CHECKBLACKAREASBUTTON.isOver(position):
+                            checkAreas(board, "black")
+                            drawBoard(boardLines, turn, turnLength, magnetDist)
+                        elif CHECKWHITEAREASBUTTON.isOver(position):
+                            checkAreas(board, "white")
+                            drawBoard(boardLines, turn, turnLength, magnetDist)
+                        elif DECREASEMAGNETBUTTON.isOver(position):
+                            if magnetDist > 0:
+                                magnetDist -= 1
+                                drawBoard(boardLines, turn, turnLength, magnetDist)
+                        elif INCREASEMAGNETBUTTON.isOver(position):
+                            if magnetDist < 10: #temporary maximum magnet
+                                magnetDist += 1
+                                drawBoard(boardLines, turn, turnLength, magnetDist)
+                        #elif DRAWBUTTON.isOver(position):
+                        elif PASSBUTTON.isOver(position):
                             turn = opposite(turn)
                             turnLength = 0
-                            drawBoard(mainBoard)
-                            drawTurn(turn)
-                            drawLengthNum(turnLength)
-                            drawSlider(magnetDist)
-                            pygame.display.update()
-                            #pygame.time.wait(500) #small pause in between turns
-                            #pygame.event.clear() #clear event queue
-                        pygame.event.clear() #clear event queue CORRECT PLACE?
-                        dots = []
-                        potentialOffBoard = None
-                        cutOffBreak = False
-                        break
+                            click = []
+                            drawBoard(boardLines, turn, turnLength, magnetDist)
+                        elif SCOREBUTTON.isOver(position):
 
-def drawnLength(dots):
-    #returns the sum of the lengths of the lines formed in dots
-    sum = 0
+                            '''
+                            count = 0
+                            for q in board:
+                                for p in q:
+                                    if p == "black":
+                                        count += 1
+                            print(count)
+                            '''
+
+                            scoredGame = scoreGame(board, pixelsDrawn)
+                            board = scoredGame[0]
+                            score = [scoredGame[1], scoredGame[2], scoredGame[3], scoredGame[4]]
+
+                            '''
+                            count = 0
+                            for q in board:
+                                for p in q:
+                                    if p == "black":
+                                        count += 1
+                            print(count)
+                            '''
+
+                            drawScoredBoard(board, False, turn, turnLength, magnetDist, score)
+
+
+                            #drawBoard(boardLines, turn, turnLength, magnetDist)
+                        elif NEWGAMEBUTTON.isOver(position):
+                            board = getNewBoard()
+                            boardLines = []
+                            turn = "black"
+                            turnLength = 0
+                            click = []
+                            drawBoard(boardLines, turn, turnLength, magnetDist)
+                    recentClick = False
+                elif event.type == MOUSEMOTION:
+                    recentClick = False
+                continuousDraw = False
+            checkForQuit(event)
+        pygame.display.update()
+
+def getNewBoard():
+    #generates a new game board
+    board = []
     i = 0
-    while i < len(dots) - 1:
-        sum += dist(dots[i], dots[i + 1])
+    while i <= SPACESIZE * (BOARDHEIGHT - 1):
+        newRow = []
+        j = 0
+        while j <= SPACESIZE * (BOARDWIDTH - 1):
+            newRow.append("")
+            j += 1
+        board.append(newRow)
         i += 1
-    return sum
+    return board
 
-def dist(a, b):
-    #returns the distance between two points
-    return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2)
+def convertScreenToBoard(position):
+    #converts the position of a pixel on the screen to align with the board
+    return (position[0] - TABLEXMARGIN - BOARDMARGIN, position[1] - TABLEYMARGIN - BOARDMARGIN)
 
-def opposite(color):
-    #returns the opposite color
-    if color == WHITE:
-        return BLACK
-    if color == BLACK:
-        return WHITE
-    if color == 'white':
-        return 'black'
-    if color == 'black':
-        return 'white'
+def convertBoardToScreen(position):
+    #converts the position of a spot on the board back to a pixel on the screen
+    #convertBoardToScreen(convertScreenToBoard(x)) == x
+    return (position[0] + TABLEXMARGIN + BOARDMARGIN, position[1] + TABLEYMARGIN + BOARDMARGIN)
 
-def color(col):
-    #converts turn to color
-    if col == 'white':
-        return WHITE
-    if col == 'black':
-        return BLACK
+def opposite(turn):
+    if turn == "black":
+        return "white"
+    if turn == "white":
+        return "black"
 
-def boundaryLineFix(first, second):
-    #returns point where line should be cut off to account for keeping the drawing on the board
-    #returns None if there is no such point
-    if first[0] == second[0] and first[1] == second[1]:
-        return None
-    leftBorder, topBorder = translateBoardToPixelCoord(0, 0)
-    rightBorder, bottomBorder = translateBoardToPixelCoord(BOARDWIDTH - 1, BOARDHEIGHT - 1)
+def lineDistance(start, end):
+    #return the distance from start to end
+    return math.sqrt((start[0] - end[0]) ** 2 + (start[1] - end[1]) ** 2)
 
-    if first[0] < leftBorder:
-        if second[0] < leftBorder:
-            return None
-        proportion = (leftBorder - first[0]) / (second[0] - first[0])
-        first = (leftBorder, first[1] + proportion * (second[1] - first[1]))
-    if first[1] < topBorder:
-        if second[1] < topBorder:
-            return None
-        proportion = (topBorder - first[1]) / (second[1] - first[1])
-        first = (first[0] + proportion * (second[0] - first[0]), topBorder)
-    if first[0] > rightBorder:
-        if second[0] > rightBorder:
-            return None
-        proportion = (first[0] - rightBorder) / (first[0] - second[0])
-        first = (rightBorder, first[1] + proportion * (second[1] - first[1]))
-    if first[1] > bottomBorder:
-        if second[1] > bottomBorder:
-            return None
-        proportion = (first[1] - bottomBorder) / (first[1] - second[1])
-        first = (first[0] + proportion * (second[0] - first[0]), bottomBorder)
-    if not isOnBoard(first):
-        return None
-    if second[0] < leftBorder:
-        proportion = (leftBorder - second[0]) / (first[0] - second[0])
-        second = (leftBorder, second[1] + proportion * (first[1] - second[1]))
-    if second[1] < topBorder:
-        proportion = (topBorder - second[1]) / (first[1] - second[1])
-        second = (second[0] + proportion * (first[0] - second[0]), topBorder)
-    if second[0] > rightBorder:
-        proportion = (second[0] - rightBorder) / (second[0] - first[0])
-        second = (rightBorder, second[1] + proportion * (first[1] - second[1]))
-    if second[1] > bottomBorder:
-        proportion = (second[1] - bottomBorder) / (second[1] - first[1])
-        second = (second[0] + proportion * (first[0] - second[0]), bottomBorder)
+def crossThrough(first, second, turn, board):
+    #checks if the diagonal line from first to second crosses through another diagonal line of the color opposite(turn)
+    if first[0] < second[0]:
+        if first[1] < second[1]:
+            pixel1 = (first[0] + 1, first[1])
+            pixel2 = (first[0], first[1] + 1)
+        else: #first[1] > second[1]
+            pixel1 = (first[0], first[1] - 1)
+            pixel2 = (first[0] + 1, first[1])
+    else: #first[0] > second[0]
+        if first[1] < second[1]:
+            pixel1 = (first[0] - 1, first[1])
+            pixel2 = (first[0], first[1] + 1)
+        else: #first[1] > second[1]
+            pixel1 = (first[0], first[1] - 1)
+            pixel2 = (first[0] - 1, first[1])
+    return board[pixel1[1]][pixel1[0]] == opposite(turn) and board[pixel2[1]][pixel2[0]] == opposite(turn)
 
-    if dist(first, second) < EPSILON:
-        return None
-    
-    return first, second
+def findLine(start, end, turn, board, turnLength):
+    #returns a line composed of pixels from start to end, cut off where appropriate
 
-def divideLine(overDrawnDot, overDrawnLength, underDrawnDot, underDrawnLength):
-    #returns point where line should be cut off to account for keeping the drawing under DRAWINGLENGTH
-    proportion = (DRAWINGLENGTH - underDrawnLength) / (overDrawnLength - underDrawnLength)
-    x = underDrawnDot[0] + proportion * (overDrawnDot[0] - underDrawnDot[0])
-    y = underDrawnDot[1] + proportion * (overDrawnDot[1] - underDrawnDot[1])
-    return (x, y)
+    #imitation of Pygame code for a line
+    x0 = start[0]
+    y0 = start[1]
+    x1 = end[0]
+    y1 = end[1]
+    result = []
+    if x0 == x1 and y0 == y1: #point
+        result.append(start)
+    elif y0 == y1: #horizontal line
+        if x0 < x1:
+            dx = 1
+        else:
+            dx = -1
+        i = 0
+        while i <= abs(x0 - x1):
+            result.append((x0 + dx * i, y0))
+            i += 1
+    elif x0 == x1: #vertical line
+        if y0 < y1:
+            dy = 1
+        else:
+            dy = -1
+        i = 0
+        while i <= abs(y0 - y1):
+            result.append((x0, y0 + dy * i))
+            i += 1
+    else:
+        dx = abs(x0 - x1)
+        if x0 < x1:
+            sx = 1
+        else:
+            sx = -1
+        dy = abs(y0 - y1)
+        if y0 < y1:
+            sy = 1
+        else:
+            sy = -1
+        if dx > dy:
+            err = dx / 2
+        else:
+            err = -dy / 2
+        while x0 != x1 or y0 != y1:
+            result.append((x0, y0))
+            e2 = err
+            if e2 > -dx:
+                err -= dy
+                x0 += sx
+            if e2 < dy:
+                err += dx
+                y0 += sy
+        result.append((x1, y1))
 
-def translateBoardToPixelCoord(x, y):
-    #converts location on board to pixels
-    return XMARGIN + x * SPACESIZE, YMARGIN + y * SPACESIZE
+    #cut off line when a) goes outside margins, b) intersects opposing player's line, or c) goes past drawing length limit
+    i = 0
+    newResult = []
+    remainingLength = MAXDRAW - turnLength
+    while i < len(result) and ((not isInsideMargins(result[i])) or board[result[i][1]][result[i][0]] == opposite(turn)):
+        i += 1
+    if i != len(result):
+        newResult.append(result[i])
+        i += 1
+    while i < len(result) and isInsideMargins(result[i]) and lineDistance(newResult[0], result[i]) <= remainingLength and board[result[i][1]][result[i][0]] != opposite(turn) and not crossThrough(result[i - 1], result[i], turn, board):
+        newResult.append(result[i])
+        i += 1
+    if len(newResult) > 0 and (newResult[0] != start or newResult[-1] != end): #the line to draw has been shortened
+        return findLine(newResult[0], newResult[-1], turn, board, turnLength) #redo algorithm on this new range
+    return newResult
 
-def drawBoard(board, last=None): #add last turn color?
-    #draw background of area surrounding board
-    DISPLAYSURF.fill(OUTERBGCOLOR)
+def drawBoard(boardLines, turn, turnLength, magnetDist):
+    #draws the board and the informational text about the game
+
+    #draw background of table area surrounding board
+    DISPLAYSURF.fill(TABLECOLOR)
 
     #draw background of board
-    #boardRect = Rect(translateBoardToPixelCoord(-1, -1), (SPACESIZE * (BOARDWIDTH + 1), SPACESIZE * (BOARDHEIGHT + 1)))
-    topLeft = translateBoardToPixelCoord(-OUTERSURF, -OUTERSURF)
-    boardRect = Rect(topLeft, (SPACESIZE * (BOARDWIDTH - 1 + 2 * OUTERSURF), SPACESIZE * (BOARDHEIGHT - 1 + 2 * OUTERSURF)))
-    #boardRect = Rect(XMARGIN - OUTERSURFACE, YMARGIN - OUTERSURFACE, SPACESIZE * (BOARDWIDTH - 1) + 2 * OUTERSURFACE, SPACESIZE * (BOARDHEIGHT - 1) + 2 * OUTERSURFACE)
-    pygame.draw.rect(DISPLAYSURF, BGCOLOR, boardRect)
+    boardRect = pygame.Rect(TABLEXMARGIN, TABLEYMARGIN, 2 * BOARDMARGIN + SPACESIZE * (BOARDWIDTH - 1), 2 * BOARDMARGIN + SPACESIZE * (BOARDHEIGHT - 1))
+    pygame.draw.rect(DISPLAYSURF, BOARDCOLOR, boardRect)
 
-    #draw grid lines of the board
-    alphaSurf = pygame.Surface(pygame.Surface.get_size(DISPLAYSURF), pygame.SRCALPHA)
-
-    for x in range(BOARDWIDTH):
-        # Draw the horizontal lines.
-        startx = (x * SPACESIZE) + XMARGIN
-        starty = YMARGIN
-        endx = (x * SPACESIZE) + XMARGIN
-        endy = YMARGIN + ((BOARDHEIGHT - 1) * SPACESIZE)
-        pygame.draw.line(alphaSurf, GRAYALPHA, (startx, starty), (endx, endy))
+    #draw the horizontal lines
     for y in range(BOARDHEIGHT):
-        # Draw the vertical lines.
-        startx = XMARGIN
-        starty = (y * SPACESIZE) + YMARGIN
-        endx = XMARGIN + ((BOARDWIDTH - 1) * SPACESIZE)
-        endy = (y * SPACESIZE) + YMARGIN
-        pygame.draw.line(alphaSurf, GRAYALPHA, (startx, starty), (endx, endy))
+        startx = TABLEXMARGIN + BOARDMARGIN
+        starty = TABLEYMARGIN + BOARDMARGIN + (y * SPACESIZE)
+        endx = TABLEXMARGIN + BOARDMARGIN + ((BOARDHEIGHT - 1) * SPACESIZE)
+        endy = starty
+        pygame.draw.line(DISPLAYSURF, GRIDLINECOLOR, (startx, starty), (endx, endy))
 
-    #draw the small circles (star points) on the go board
+    #draw the vertical lines
+    for x in range(BOARDWIDTH):
+        startx = TABLEXMARGIN + BOARDMARGIN + (x * SPACESIZE)
+        starty = TABLEYMARGIN + BOARDMARGIN
+        endx = startx
+        endy = TABLEYMARGIN + BOARDMARGIN + ((BOARDHEIGHT - 1) * SPACESIZE)
+        pygame.draw.line(DISPLAYSURF, GRIDLINECOLOR, (startx, starty), (endx, endy))
+
+    #draw the star points (small circles) on the go board
     if BOARDWIDTH == 19 and BOARDHEIGHT == 19:
-        for x in range(BOARDWIDTH):
-            for y in range(BOARDHEIGHT):
-                if x % 6 == 3 and y % 6 == 3:
-                    centerx, centery = translateBoardToPixelCoord(x, y)
-                    pygame.draw.circle(alphaSurf, GRAYALPHA, (round(centerx), round(centery)), 5, 0)
+        for x in {3, 9, 15}:
+            for y in {3, 9, 15}:
+                pygame.draw.circle(DISPLAYSURF, GRIDLINECOLOR, (TABLEXMARGIN + BOARDMARGIN + x * SPACESIZE, TABLEYMARGIN + BOARDMARGIN + y * SPACESIZE), SPACESIZE // 7, 0)
+    elif BOARDWIDTH == 9 and BOARDHEIGHT == 9:
+        for (x, y) in {(2, 2), (6, 2), (4, 4), (2, 6), (6, 6)}:
+            pygame.draw.circle(DISPLAYSURF, GRIDLINECOLOR, (TABLEXMARGIN + BOARDMARGIN + x * SPACESIZE, TABLEYMARGIN + BOARDMARGIN + y * SPACESIZE), SPACESIZE // 7, 0)
 
-    DISPLAYSURF.blit(alphaSurf, (0, 0))
+    #draw the lines on the board created by the players
+    for i in boardLines:
+        pygame.draw.line(DISPLAYSURF, i[2], convertBoardToScreen(i[0]), convertBoardToScreen(i[1]))
 
-    #draw the game's lines
-    for line in board:
-        pygame.draw.line(DISPLAYSURF, line[0], line[1], line[2])
+    #draw informational text about the state of the game
+    drawTurn(turn)
+    drawTurnLength(turnLength)
+    drawMagnetStrength(magnetDist)
+    drawButtons()
+
+
+
+def drawScoredBoard(board, partial, turn=None, turnLength=None, magnetDist=None, score=None):
+    #if game is over, draws the ending board and the informational text about the game
+    #otherwise, draws the board as is along with highlighted user-selected sections
+
+    #draw background of table area surrounding board
+    DISPLAYSURF.fill(TABLECOLOR)
+
+    #draw background of board
+    boardRect = pygame.Rect(TABLEXMARGIN, TABLEYMARGIN, 2 * BOARDMARGIN + SPACESIZE * (BOARDWIDTH - 1), 2 * BOARDMARGIN + SPACESIZE * (BOARDHEIGHT - 1))
+    pygame.draw.rect(DISPLAYSURF, BOARDCOLOR, boardRect)
+
+    #draw the horizontal lines
+    for y in range(BOARDHEIGHT):
+        startx = TABLEXMARGIN + BOARDMARGIN
+        starty = TABLEYMARGIN + BOARDMARGIN + (y * SPACESIZE)
+        endx = TABLEXMARGIN + BOARDMARGIN + ((BOARDHEIGHT - 1) * SPACESIZE)
+        endy = starty
+        pygame.draw.line(DISPLAYSURF, GRIDLINECOLOR, (startx, starty), (endx, endy))
+
+    #draw the vertical lines
+    for x in range(BOARDWIDTH):
+        startx = TABLEXMARGIN + BOARDMARGIN + (x * SPACESIZE)
+        starty = TABLEYMARGIN + BOARDMARGIN
+        endx = startx
+        endy = TABLEYMARGIN + BOARDMARGIN + ((BOARDHEIGHT - 1) * SPACESIZE)
+        pygame.draw.line(DISPLAYSURF, GRIDLINECOLOR, (startx, starty), (endx, endy))
+
+    #draw the star points (small circles) on the go board
+    if BOARDWIDTH == 19 and BOARDHEIGHT == 19:
+        for x in {3, 9, 15}:
+            for y in {3, 9, 15}:
+                pygame.draw.circle(DISPLAYSURF, GRIDLINECOLOR, (TABLEXMARGIN + BOARDMARGIN + x * SPACESIZE, TABLEYMARGIN + BOARDMARGIN + y * SPACESIZE), SPACESIZE // 7, 0)
+    elif BOARDWIDTH == 9 and BOARDHEIGHT == 9:
+        for (x, y) in {(2, 2), (6, 2), (4, 4), (2, 6), (6, 6)}:
+            pygame.draw.circle(DISPLAYSURF, GRIDLINECOLOR, (TABLEXMARGIN + BOARDMARGIN + x * SPACESIZE, TABLEYMARGIN + BOARDMARGIN + y * SPACESIZE), SPACESIZE // 7, 0)
+
+    #draw the pixels on the board created by the players
+    for j in range(len(board)):
+        for i in range(len(board[0])):
+            if board[j][i] == "black":
+                DISPLAYSURF.set_at((TABLEXMARGIN + BOARDMARGIN + i, TABLEYMARGIN + BOARDMARGIN + j), BLACK)
+            elif board[j][i] == "white":
+                DISPLAYSURF.set_at((TABLEXMARGIN + BOARDMARGIN + i, TABLEYMARGIN + BOARDMARGIN + j), WHITE)
+            elif board[j][i] == "gray":
+                DISPLAYSURF.set_at((TABLEXMARGIN + BOARDMARGIN + i, TABLEYMARGIN + BOARDMARGIN + j), GRAY)
+            elif board[j][i] == "green":
+                DISPLAYSURF.set_at((TABLEXMARGIN + BOARDMARGIN + i, TABLEYMARGIN + BOARDMARGIN + j), GREEN)
+
+    if not partial:
+        #draw informational text about the state of the game
+        drawTurn(turn)
+        drawTurnLength(turnLength)
+        drawMagnetStrength(magnetDist)
+        drawButtons()
+        drawScore(score)
+
+
+
+
+
+
 
 def drawTurn(turn):
-    #draws whose turn it is at the bottom of the screen
+    #displays whose turn it is at the bottom of the screen
     turnSurf = FONT.render("%s's Turn" % (turn.title()), True, TEXTCOLOR)
     turnRect = turnSurf.get_rect()
     turnRect.bottomleft = (10, WINDOWHEIGHT - 60)
     DISPLAYSURF.blit(turnSurf, turnRect)
 
-def drawLengthNum(length):
-    #draws how much of the turn's line length has been drawn so far
-    lengthSurf = FONT.render("%.2f Drawn" % (round(length, 2)), True, TEXTCOLOR)
+def drawTurnLength(turnLength):
+    #displays how much of the turn's line length has been drawn so far
+    lengthSurf = FONT.render("%f Percent Drawn" % (100 * turnLength / MAXDRAW), True, TEXTCOLOR)
+    lengthRect = lengthSurf.get_rect()
+    lengthRect.bottomleft = (10, WINDOWHEIGHT - 110)
+    DISPLAYSURF.blit(lengthSurf, lengthRect)
+
+    '''
+    lengthSurf = FONT.render("%.2f Drawn" % (round(turnLength, 2)), True, TEXTCOLOR)
     lengthRect = lengthSurf.get_rect()
     lengthRect.bottomleft = (10, WINDOWHEIGHT - 120)
     DISPLAYSURF.blit(lengthSurf, lengthRect)
 
-    lengthSurf2 = FONT.render("(Out Of %.2f)" % (DRAWINGLENGTH), True, TEXTCOLOR)
+    lengthSurf2 = FONT.render("(Out Of %.2f)" % (MAXDRAW), True, TEXTCOLOR)
     lengthRect2 = lengthSurf.get_rect()
     lengthRect2.bottomleft = (10, WINDOWHEIGHT - 100)
     DISPLAYSURF.blit(lengthSurf2, lengthRect2)
+    '''
 
-def drawSlider(magnetDist):
-    #draws the interactive magnetic slider
-    slideSurf = FONT.render("Mouse Magnet Strength", True, TEXTCOLOR)
-    slideRect = slideSurf.get_rect()
-    slideRect.bottomleft = (SLIDERLEFT - 26, SLIDERHEIGHT - 20)
-    DISPLAYSURF.blit(slideSurf, slideRect)
+def drawMagnetStrength(magnetDist):
+    #draws the strength of the magnet
+    magnetSurf = FONT.render("%i" % (magnetDist), True, TEXTCOLOR)
+    magnetRect = magnetSurf.get_rect()
+    magnetRect.topleft = (55, 205)
+    DISPLAYSURF.blit(magnetSurf, magnetRect)
+    return
 
-    #minSurf = FONT.render("min", True, TEXTCOLOR)
-    minSurf = FONT.render("0", True, TEXTCOLOR)
-    minRect = minSurf.get_rect()
-    minRect.topright = (SLIDERLEFT - 8, SLIDERHEIGHT)
-    DISPLAYSURF.blit(minSurf, minRect)
+def drawButtons():
+    CHECKBLACKAREASBUTTON.draw()
+    CHECKWHITEAREASBUTTON.draw()
+    DECREASEMAGNETBUTTON.draw()
+    INCREASEMAGNETBUTTON.draw()
+    DRAWBUTTON.draw()
+    PASSBUTTON.draw()
+    SCOREBUTTON.draw()
+    NEWGAMEBUTTON.draw()
 
-    maxSurf = FONT.render("max", True, TEXTCOLOR)
-    maxRect = maxSurf.get_rect()
-    maxRect.topleft = (SLIDERRIGHT + 8, SLIDERHEIGHT)
-    DISPLAYSURF.blit(maxSurf, maxRect)
+def drawScore(score):
+    blackScore = score[0]
+    whiteScore = score[1]
+    bothScore = score[2]
+    neitherScore = score[3]
 
-    pygame.draw.rect(DISPLAYSURF, SLIDERCOLOR, (SLIDERLEFT, SLIDERHEIGHT, SLIDERRIGHT - SLIDERLEFT, 12))
-    pygame.draw.circle(DISPLAYSURF, SLIDERCIRCLECOLOR, (int(SLIDERLEFT + SLIDERDIVISION * magnetDist), SLIDERHEIGHT + 6), 10)
+    #blackSurf = FONT.render("final black score: %i" % (blackScore), True, TEXTCOLOR)
+    blackSurf = FONT.render("final black score: %f" % (blackScore / SQUARE), True, TEXTCOLOR)
+    blackRect = blackSurf.get_rect()
+    blackRect.topleft = (1200, 350)
+    DISPLAYSURF.blit(blackSurf, blackRect)
+
+    #whiteSurf = FONT.render("final white score (without komi): %i" % (whiteScore), True, TEXTCOLOR)
+    whiteSurf = FONT.render("final white score (without komi): %f" % (whiteScore / SQUARE), True, TEXTCOLOR)
+    whiteRect = whiteSurf.get_rect()
+    whiteRect.topleft = (1200, 370)
+    DISPLAYSURF.blit(whiteSurf, whiteRect)
+
+    #bothSurf = FONT.render("final both score: %i" % (bothScore), True, TEXTCOLOR)
+    bothSurf = FONT.render("final both score: %f" % (bothScore / SQUARE), True, TEXTCOLOR)
+    bothRect = bothSurf.get_rect()
+    bothRect.topleft = (1200, 390)
+    DISPLAYSURF.blit(bothSurf, bothRect)
+
+    #neitherSurf = FONT.render("final neither score: %i" % (neitherScore), True, TEXTCOLOR)
+    neitherSurf = FONT.render("final neither score: %f" % (neitherScore / SQUARE), True, TEXTCOLOR)
+    neitherRect = neitherSurf.get_rect()
+    neitherRect.topleft = (1200, 410)
+    DISPLAYSURF.blit(neitherSurf, neitherRect)
+
+    #komiSurf = FONT.render("komi: %i" % (KOMI), True, TEXTCOLOR)
+    komiSurf = FONT.render("komi: %f" % (KOMI / SQUARE), True, TEXTCOLOR)
+    komiRect = komiSurf.get_rect()
+    komiRect.topleft = (1200, 430)
+    DISPLAYSURF.blit(komiSurf, komiRect)
+
+    if blackScore > whiteScore + KOMI:
+        finalText = "black wins"
+    elif whiteScore + KOMI > blackScore:
+        finalText = "white wins"
+    else:
+        finalText = "tie"
+
+    finalSurf = FONT.render((finalText), True, TEXTCOLOR)
+    finalRect = finalSurf.get_rect()
+    finalRect.topleft = (1200, 450)
+    DISPLAYSURF.blit(finalSurf, finalRect)
+
+
+def drawHighlightedScore(color, score):
+    #draws the total of the areas that the users has highlighted
+    scoreSurf = FONT.render("you have highlighted %f squares of %s's area" % (score, color), True, TEXTCOLOR)
+    scoreRect = scoreSurf.get_rect()
+    scoreRect.topleft = (1000, 350)
+    DISPLAYSURF.blit(scoreSurf, scoreRect)
+
+
+
+
+def isInsideMargins(position):
+    #returns True iff the coordinates are located on the board within the gridlines
+    maxX = SPACESIZE * (BOARDWIDTH - 1)
+    maxY = SPACESIZE * (BOARDHEIGHT - 1)
+    return 0 <= position[0] and position[0] <= maxX and 0 <= position[1] and position[1] <= maxY
 
 def isOnBoard(position):
-    #returns True iff the coordinates are located on the board
+    #returns True iff the coordinates are located on the board, whether within the gridlines or within the margins
+    maxX = SPACESIZE * (BOARDWIDTH - 1) + BOARDMARGIN
+    maxY = SPACESIZE * (BOARDHEIGHT - 1) + BOARDMARGIN
+    return -BOARDMARGIN <= position[0] and position[0] <= maxX and -BOARDMARGIN <= position[1] and position[1] <= maxY
+
+def findClosestPixel(board, position, turn, magnetDist):
+    #returns the closest pixel among player's own to position as long as it is within magnetDist; otherwise returns None
+    closestPixel = None
+    closestDistance = magnetDist
+    x = position[0] - magnetDist
+    while x <= position[0] + magnetDist:
+        y = position[1] - magnetDist
+        while y <= position[1] + magnetDist:
+            if isInsideMargins((x, y)) and board[y][x] == turn:
+                dist = lineDistance(position, (x, y))
+                if dist <= closestDistance:
+                    closestDistance = dist
+                    closestPixel = (x, y)
+            y += 1
+        x += 1
+    return closestPixel
+
+def neighbors(position, board):
+    #finds the same-colored neighbors of the pixel at position within board
+    # 1 2 3
+    # 4 X 5
+    # 6 7 8
     x = position[0]
     y = position[1]
-    minX, minY = translateBoardToPixelCoord(0, 0)
-    maxX, maxY = translateBoardToPixelCoord(BOARDWIDTH - 1, BOARDHEIGHT - 1)
-    return x >= minX and x <= maxX and y >= minY and y <= maxY
+    color = board[y][x]
+    result = []
+    if y > 0:
+        if board[y - 1][x] == color:
+            result.append((x, y - 1)) #2
+        if x > 0:
+            if board[y - 1][x - 1] == color:
+                result.append((x - 1, y - 1)) #1
+        if x < len(board[0]) - 1:
+            if board[y - 1][x + 1] == color:
+                result.append((x + 1, y - 1)) #3
+    if y < len(board) - 1:
+        if board[y + 1][x] == color:
+            result.append((x, y + 1)) #7
+        if x > 0:
+            if board[y + 1][x - 1] == color:
+                result.append((x - 1, y + 1)) #6
+        if x < len(board[0]) - 1:
+            if board[y + 1][x + 1] == color:
+                result.append((x + 1, y + 1)) #8
+    if x > 0:
+        if board[y][x - 1] == color:
+            result.append((x - 1, y)) #4
+    if x < len(board[0]) - 1:
+        if board[y][x + 1] == color:
+            result.append((x + 1, y)) #5
+    return result
 
-def isOnSurface(position):
-    #returns True iff the coordinates are located on the surface surrounding the board
+def isOnBorder(position, board):
+    #determines if position is on border of board
     x = position[0]
     y = position[1]
-    minX, minY = translateBoardToPixelCoord(-OUTERSURF, -OUTERSURF)
-    maxX, maxY = translateBoardToPixelCoord(BOARDWIDTH - 1 + OUTERSURF, BOARDHEIGHT - 1 + OUTERSURF)
-    return x >= minX and x <= maxX and y >= minY and y <= maxY
+    if y == 0 or x == 0 or y == len(board) - 1 or x == len(board[0]) - 1:
+        return True
+    return False
 
-def between(a, b, c):
-    #checks if b is between a and c, inclusive
-    low = min(a, c)
-    high = max(a, c)
-    return low <= b and b <= high
 
-def betweenEx(a, b, c):
-    #checks if b is between a and c, exclusive
-    low = min(a, c)
-    high = max(a, c)
-    return low < b and b < high
-
-def between2(a, b, c):
-    #checks if b is between a and c, inclusive, or within one of being so
-    low = min(a, c)
-    high = max(a, c)
-    return low <= b + 1 and b - 1 <= high
-
-def inBox(p, line, d):
-    #checks if p is within d of line, inclusive; if so, returns the nearest point on line to p; if not, returns None
-    i = line[0]
-    j = line[1]
-    #near line:
-    if i[0] == j[0]: #vertical line
-        if between(i[1], p[1], j[1]) and between(i[0] - d, p[0], i[0] + d):
-            return (i[0], p[1])
-    elif i[1] == j[1]: #horizontal line
-        if between(i[0], p[0], j[0]) and between(i[1] - d, p[1], i[1] + d):
-            return (p[0], i[1])
-    else: #oblique line
-        m1 = (j[1] - i[1]) / (j[0] - i[0])
-        b1 = i[1] - m1 * i[0]
-        m2 = -1 / m1
-        b2 = p[1] - m2 * p[0]
-        x = (b2 - b1) / (m1 - m2)
-        y = m2 * x + b2
-        if between(i[0], x, j[0]) and dist(p, (x, y)) <= d:
-            return (x, y)
-    #near endpoint:
-    if dist(p, i) <= d and dist(p, j) <= d:
-        if dist(p, i) <= dist(p, j):
-            return i
-        return j
-    if dist(p, i) <= d:
-        return i
-    if dist(p, j) <= d:
-        return j
-    return None
-
-def findClosestLine(board, new, turn, magnetDist):
-    #finds the closest line (among player's own) to the mouse (new) as long as it is within magnetDist
-    #then returns the point on that line where the closest distance to the mouse is
-    closestLine = None
-    new = (new[0], -new[1]) #temporary conversion to treat board like coordinate plane
-    for line in board:
-        if line[0] != color(turn):
-            continue
-        line = ((line[1][0], -line[1][1]), (line[2][0], -line[2][1])) #temporary conversion to treat board like coordinate plane
-        closestPoint = inBox(new, line, magnetDist)
-        if closestPoint == None:
-            continue
-        closestDist = dist(new, closestPoint)
-        if closestLine == None or closestDist < closestLine[0]:
-            closestLine = [closestDist, closestPoint]
-    if closestLine == None:
-        return None
-    return (closestLine[1][0], -closestLine[1][1]) #convert from coordinate plane back to board
-
-def parallelLines(line, dist):
-    #returns the two lines parallel to line at distance dist
-    i = line[0]
-    j = line[1]
-    if i[0] == j[0]: #vertical line
-        return ((i[0] - dist, i[1]), (i[0] - dist, j[1])), ((i[0] + dist, i[1]), (i[0] + dist, j[1]))
-    if i[1] == j[1]: #horizontal line
-        return ((i[0], i[1] + dist), (j[0], i[1] + dist)), ((i[0], i[1] - dist), (j[0], i[1] - dist))
-    #oblique line:
-    m1 = (j[1] - i[1]) / (j[0] - i[0])
-    m2 = -1 / m1
-    #m2 = tan(a), sin(a) = dy/dist, cos(a) = dx/dist
-    dx = abs(dist * math.cos(math.atan(m2)))
-    dy = abs(dist * math.sin(math.atan(m2)))
-    if m1 > 0:
-        dx = -dx
-    return ((i[0] + dx, i[1] + dy), (j[0] + dx, j[1] + dy)), ((i[0] - dx, i[1] - dy), (j[0] - dx, j[1] - dy))
-
-def linesIntersect(line1, line2):
-    #return the intersection point of line1 and line2
-    #return None if they don't intersect
-    #if they intersect at multiple points:
-    #if line1 is within line2, return None
-    #if line1[0] is part of the intersection, return the part of the intersection closest to line1[1]
-    #otherwise, return the part of the intersection closest to line1[0]
-    h = line1[0]
-    i = line1[1]
-    j = line2[0]
-    k = line2[1]
-    if h[0] == i[0]: #vertical line1
-        if j[0] == k[0]: #vertical line2
-            if h[0] != j[0]:
-                return None
-            if between(j[1], h[1], k[1]):
-                if between(j[1], i[1], k[1]):
-                    return None
-                if dist(i, j) < dist(i, k):
-                    return j
-                return k
-            if between(j[1], i[1], k[1]) or between(h[1], j[1], i[1]):
-                if dist(h, j) < dist(h, k):
-                    return j
-                return k
-            return None
-        if j[1] == k[1]: #horizontal line2
-            if between(j[0], h[0], k[0]) and between(h[1], j[1], i[1]):
-                return (h[0], j[1])
-            return None
-        #oblique line2
-        m = (k[1] - j[1]) / (k[0] - j[0])
-        b = j[1] - m * j[0]
-        y = m * h[0] + b
-        if between(h[1], y, i[1]) and between(j[0], h[0], k[0]):
-            return (h[0], y)
-        return None
-    elif h[1] == i[1]: #horizontal line1
-        if j[0] == k[0]: #vertical line2
-            if between(j[1], h[1], k[1]) and between(h[0], j[0], i[0]):
-                return (j[0], h[1])
-            return None
-        if j[1] == k[1]: #horizontal line2
-            if h[1] != j[1]:
-                return None
-            if between(j[0], h[0], k[0]):
-                if between(j[0], i[0], k[0]):
-                    return None
-                if dist(i, j) < dist(i, k):
-                    return j
-                return k
-            if between(j[0], i[0], k[0]) or between(h[0], j[0], i[0]):
-                if dist(h, j) < dist(h, k):
-                    return j
-                return k
-            return None
-        #oblique line2
-        m = (k[1] - j[1]) / (k[0] - j[0])
-        b = j[1] - m * j[0]
-        x = (h[1] - b) / m
-        if between(h[0], x, i[0]) and between(j[1], h[1], k[1]):
-            return (x, h[1])
-        return None
-    else: #oblique line1
-        if j[0] == k[0]: #vertical line2
-            m = (i[1] - h[1]) / (i[0] - h[0])
-            b = h[1] - m * h[0]
-            y = m * j[0] + b
-            if between(j[1], y, k[1]) and between(h[0], j[0], i[0]):
-                return (j[0], y)
-            return None
-        if j[1] == k[1]: #horizontal line2
-            m = (i[1] - h[1]) / (i[0] - h[0])
-            b = h[1] - m * h[0]
-            x = (j[1] - b) / m
-            if between(j[0], x, k[0]) and between(h[1], j[1], i[1]):
-                return (x, j[1])
-            return None
-        #oblique line2
-        m1 = (i[1] - h[1]) / (i[0] - h[0])
-        b1 = h[1] - m1 * h[0]
-        m2 = (k[1] - j[1]) / (k[0] - j[0])
-        b2 = j[1] - m2 * j[0]
-        if m1 == m2:
-            if b1 != b2:
-                return None
-            if between(j[0], h[0], k[0]):
-                if between(j[0], i[0], k[0]):
-                    return None
-                if dist(i, j) < dist(i, k):
-                    return j
-                return k
-            if between(j[0], i[0], k[0]) or between(h[0], j[0], i[0]):
-                if dist(h, j) < dist(h, k):
-                    return j
-                return k
-            return None
-        x = (b2 - b1) / (m1 - m2)
-        y = m1 * x + b1
-        if between(h[0], x, i[0]) and between(j[0], x, k[0]):
-            return (x, y)
-        return None
-
-def circleLineIntersect(line, center, rad, switch=False):
-    #returns the intersection point of line and the circle with center center and radius rad
-    #if multiple such points and switch is False, returns the one closest to the first point in the line
-    #if multiple such points and switch is True, returns the one closest to the second point in the line
-    #if no such points, returns None
-    if switch:
-        p = line[1]
-        q = line[0]
-    else:
-        p = line[0]
-        q = line[1]
-    #(x - center[0]) ** 2 + (y - center[1]) ** 2 = rad ** 2
-    if p[0] == q[0]: #vertical line
-        if rad ** 2 - (p[0] - center[0]) ** 2 < 0:
-            return None
-        y1 = center[1] - math.sqrt(rad ** 2 - (p[0] - center[0]) ** 2)
-        y2 = center[1] + math.sqrt(rad ** 2 - (p[0] - center[0]) ** 2)
-        if (p[1] > y2 and q[1] > y2) or (p[1] < y1 and q[1] < y1):
-            return None
-        if y1 < p[1] and p[1] < y2 and y1 < q[1] and q[1] < y2:
-            return None
-        if p[1] > y1 and q[1] > y1:
-            return (p[0], y2)
-        if p[1] < y2 and q[1] < y2:
-            return (p[0], y1)
-        if p[1] < q[1]:
-            return (p[0], y1)
-        return (p[0], y2)
-    #horizontal line or oblique line
-    m = (q[1] - p[1]) / (q[0] - p[0])
-    b = p[1] - m * p[0]
-    A = m ** 2 + 1
-    B = 2 * m * b - 2 * center[0] - 2 * m * center[1]
-    C = center[0] ** 2 + b ** 2 - 2 * b * center[1] + center[1] ** 2 - rad ** 2
-    if B ** 2 - 4 * A * C < 0:
-        return None
-    x1 = (-B - math.sqrt(B ** 2 - 4 * A * C)) / (2 * A)
-    x2 = (-B + math.sqrt(B ** 2 - 4 * A * C)) / (2 * A)
-    if (p[0] < x1 and q[0] < x1) or (p[0] > x2 and q[0] > x2):
-        return None
-    if x1 < p[0] and p[0] < x2 and x1 < q[0] and q[0] < x2:
-        return None
-    if p[0] < x2 and q[0] < x2:
-        x = x1
-    elif p[0] > x1 and q[0] > x1:
-        x = x2
-    elif p[0] < q[0]:
-        x = x1
-    else:
-        x = x2
-    y = m * x + b
-    return (x, y)
-
-def checkIntersection(board, newLine, turn):
-    #check if the new line comes within INTERSECTDIST of the opposing player's lines on the board
-    #if so, return the section of the line remaining after being cut off
-    #if this section is nonexistent, return None
-    #if the new line never comes near any opposing lines, return the original line
-
-    shortestLine = ((newLine[0][0], -newLine[0][1]), (newLine[1][0], -newLine[1][1])) #conversion to treat board like coordinate plane
-
-    #print("shortestLine start:")
-    #print(shortestLine)
-
-    firstPointIntersect = [] #variable to keep track of lines that cause shortestLine[0] to be adjusted because of proximity
-
+'''
+def contiguous(positions):
+    #returns True iff the positions are in a contiguous block
+    if len(positions) < 2:
+        return True
+    block = [positions[0]]
+    del positions[0]
     while True:
-        lineChange = False #variable to keep track of whether shortestLine has been adjusted because its first point is near another line
-        for line in board:
-            if line[0] == color(turn):
+        if len(positions) == 0:
+            return True
+        newBlock = []
+        for i in positions:
+            for j in block:
+                if abs(i[0] - j[0]) <= 1 and abs(i[1] - j[1]) <= 1 and i not in newBlock:
+                    newBlock.append(i)
+        if len(newBlock) == 0:
+            return False
+        for x in newBlock:
+            block.append(x)
+            positions.remove(x)
+'''
+
+
+
+
+
+
+
+
+
+
+def floodFillSection(board, point, color):
+    #fills in section by getting list of pixels within area contained by lines of given color via algorithm found on Wikipedia
+    #also return list of pixels of given color on borders surrounding this section (both inside and out)
+    s = [] #stack of points to check
+    fillList = [] #fill points
+    borderList = [] #border points
+    s.append((point, (0, 0, "")))
+    while len(s) > 0:
+        temp = s.pop()
+        point = temp[0]
+        completedRange = temp[1]
+        #fill in the row to the left and right of point; add the pixels to the left and right of this range to borderList
+        leftPoint = (point[0] - 1, point[1])
+        while isInsideMargins(leftPoint) and leftPoint not in fillList and board[leftPoint[1]][leftPoint[0]] != color:
+            fillList.append(leftPoint)
+            leftPoint = (leftPoint[0] - 1, leftPoint[1])
+        if isInsideMargins(leftPoint) and leftPoint not in borderList and board[leftPoint[1]][leftPoint[0]] == color:
+            borderList.append(leftPoint)
+        while isInsideMargins(point) and point not in fillList and board[point[1]][point[0]] != color:
+            fillList.append(point)
+            point = (point[0] + 1, point[1])
+        if isInsideMargins(point) and point not in borderList and board[point[1]][point[0]] == color:
+            borderList.append(point)
+        #add the rows above and below point to the stack; add the border points here to borderList
+        added = False
+        for i in range(leftPoint[0] + 1, point[0]):
+            if completedRange[2] == "below" and (completedRange[0] <= i and i < completedRange[1]):
                 continue
+            newPoint = (i, point[1] - 1)
+            if not isInsideMargins(newPoint) or newPoint in fillList or board[newPoint[1]][newPoint[0]] == color:
+                if isInsideMargins(newPoint) and newPoint not in borderList and board[newPoint[1]][newPoint[0]] == color:
+                    borderList.append(newPoint)
+                added = False
+            elif not added:
+                s.append((newPoint, (leftPoint[0] + 1, point[0], "above")))
+                added = True
+        added = False
+        for i in range(leftPoint[0] + 1, point[0]):
+            if completedRange[2] == "above" and (completedRange[0] <= i and i < completedRange[1]):
+                continue
+            newPoint = (i, point[1] + 1)
+            if not isInsideMargins(newPoint) or newPoint in fillList or board[newPoint[1]][newPoint[0]] == color:
+                if isInsideMargins(newPoint) and newPoint not in borderList and board[newPoint[1]][newPoint[0]] == color:
+                    borderList.append(newPoint)
+                added = False
+            elif not added:
+                s.append((newPoint, (leftPoint[0] + 1, point[0], "below")))
+                added = True
+        #add any corners of the range checked to borderList
+        corners = [(leftPoint[0], point[1] - 1), (point[0], point[1] - 1), (leftPoint[0], point[1] + 1), (point[0], point[1] + 1)]
+        for corner in corners:
+            if isInsideMargins(corner) and corner not in borderList and board[corner[1]][corner[0]] == color:
+                borderList.append(corner)
 
-            i = line[1]
-            j = line[2]
+    #print("\n")
+    #print("borderList:")
+    #print(borderList)
 
-            i = (i[0], -i[1]) #conversion to treat board like coordinate plane
-            j = (j[0], -j[1]) #conversion to treat board like coordinate plane
+    return (fillList, borderList)
 
-            if inBox(shortestLine[0], (i, j), INTERSECTDIST) and (i, j) not in firstPointIntersect:
-                if inBox(shortestLine[1], (i, j), INTERSECTDIST):
-                    return None
-                a, b = parallelLines((i, j), INTERSECTDIST)
-                newPoint = linesIntersect((shortestLine[0], shortestLine[1]), a)
-                if newPoint != None:
-                    shortestLine = (newPoint, shortestLine[1])
-                    lineChange = True
-                newPoint = linesIntersect((shortestLine[0], shortestLine[1]), b)
-                if newPoint != None:
-                    shortestLine = (newPoint, shortestLine[1])
-                    lineChange = True
-                newPoint = circleLineIntersect((shortestLine[0], shortestLine[1]), i, INTERSECTDIST, True)
-                if newPoint != None:
-                    shortestLine = (newPoint, shortestLine[1])
-                    lineChange = True
-                newPoint = circleLineIntersect((shortestLine[0], shortestLine[1]), j, INTERSECTDIST, True)
-                if newPoint != None:
-                    shortestLine = (newPoint, shortestLine[1])
-                    lineChange = True
-                firstPointIntersect.append((i, j))
-                #if not lineChange:
-                    #print(shortestLine[0], shortestLine[1]) #why should this ever print?
-                    #print(i, j)
-                if lineChange:
+
+
+
+
+
+
+
+
+
+
+'''
+def floodFillSection(board, point, color):
+    #fills in section by getting list of pixels within area contained by lines of given color via algorithm found on Wikipedia
+    #also return list of pixels of given color on borders surrounding this section (both inside and out)
+    s = [] #stack of points to check
+    fillList = [] #fill points
+    borderList = [] #border points
+    s.append(point)
+    while len(s) > 0:
+        point = s.pop()
+        #fill in the row to the left and right of point; add the pixels to the left and right of this range to borderList
+        leftPoint = (point[0] - 1, point[1])
+        while isInsideMargins(leftPoint) and leftPoint not in fillList and board[leftPoint[1]][leftPoint[0]] != color:
+            fillList.append(leftPoint)
+            leftPoint = (leftPoint[0] - 1, leftPoint[1])
+        if isInsideMargins(leftPoint) and leftPoint not in borderList and board[leftPoint[1]][leftPoint[0]] == color:
+            borderList.append(leftPoint)
+        while isInsideMargins(point) and point not in fillList and board[point[1]][point[0]] != color:
+            fillList.append(point)
+            point = (point[0] + 1, point[1])
+        if isInsideMargins(point) and point not in borderList and board[point[1]][point[0]] == color:
+            borderList.append(point)
+        #add the rows above and below point to the stack; add the border points here to borderList
+        added = False
+        for i in range(leftPoint[0] + 1, point[0]):
+            newPoint = (i, point[1] - 1)
+            if not isInsideMargins(newPoint) or newPoint in fillList or board[newPoint[1]][newPoint[0]] == color:
+                if isInsideMargins(newPoint) and newPoint not in borderList and board[newPoint[1]][newPoint[0]] == color:
+                    borderList.append(newPoint)
+                added = False
+            elif not added:
+                s.append(newPoint)
+                added = True
+        added = False
+        for i in range(leftPoint[0] + 1, point[0]):
+            newPoint = (i, point[1] + 1)
+            if not isInsideMargins(newPoint) or newPoint in fillList or board[newPoint[1]][newPoint[0]] == color:
+                if isInsideMargins(newPoint) and newPoint not in borderList and board[newPoint[1]][newPoint[0]] == color:
+                    borderList.append(newPoint)
+                added = False
+            elif not added:
+                s.append(newPoint)
+                added = True
+        #add any corners of the range checked to borderList
+        corners = [(leftPoint[0], point[1] - 1), (point[0], point[1] - 1), (leftPoint[0], point[1] + 1), (point[0], point[1] + 1)]
+        for corner in corners:
+            if isInsideMargins(corner) and corner not in borderList and board[corner[1]][corner[0]] == color:
+                borderList.append(corner)
+
+    #print("\n")
+    #print("borderList:")
+    #print(borderList)
+
+    return (fillList, borderList)
+'''
+
+
+
+
+
+
+
+'''
+def findBorderPoint(point, board, color):
+    i = point[0]
+    j = point[1]
+    while isInsideMargins((i, j - 1)):
+        j -= 1
+        if board[j][i] == color:
+            return (i, j)
+    while isInsideMargins((i - 1, j)):
+        i -= 1
+        if board[j][i] == color:
+            return (i, j)
+    while isInsideMargins((i, j + 1)):
+        j += 1
+        if board[j][i] == color:
+            return (i, j)
+    while isInsideMargins((i + 1, j)):
+        i += 1
+        if board[j][i] == color:
+            return (i, j)
+'''
+
+
+
+
+
+def illegalConnection(a, b, crossings, board):
+    #tests whether the line from a to b should be disallowed by checking crossings
+    color = board[a[1]][a[0]]
+    for i in crossings:
+        if i[2] != color:
+            square = ((i[0], i[1]), (i[0] + 1, i[1]), (i[0], i[1] + 1), (i[0] + 1, i[1] + 1))
+            if a in square and b in square:
+                return True
+    return False
+
+
+
+
+
+
+def scoreGame(board, pixelsDrawn):
+    #scores the game
+
+    #* = remove and check neighbor
+
+    #num neighbors      0           1                           2                               3
+    #on border          remove      if neighbor on border, *    if neighbors touching, remove
+    #not on border      remove      *                           if neighbors touching, remove
+    if len(board) == 0 or len(board[0]) == 0:
+        return board
+    '''
+    #deletes partial lines that are not part of a closed surface; also deletes superfluous pixels
+    for j in range(len(board)):
+        for i in range(len(board[0])):
+            if board[j][i] == "":
+                continue
+            position = (i, j)
+            while True:
+                adjacent = neighbors(position, board)
+                #("next:")
+                #print(position)
+                #print(adjacent)
+                if len(adjacent) == 0:
+                    board[position[1]][position[0]] = ""
                     break
-        if shortestLine[0] == shortestLine[1]:
-            return None
-        if not lineChange:
-            break
+                elif len(adjacent) == 1:
+                    if isOnBorder(position, board) and not isOnBorder(adjacent[0], board):
+                        break
+                    board[position[1]][position[0]] = ""
+                    position = adjacent[0]
+                else:
+                    if contiguous(adjacent):
+                        #print("contig")
+                        board[position[1]][position[0]] = ""
+                    break
+    '''
 
-    #print("shortestLine middle:")
-    #print(shortestLine)
 
-    for line in board:
-        if line[0] == color(turn):
-            continue
 
-        i = line[1]
-        j = line[2]
 
-        i = (i[0], -i[1]) #conversion to treat board like coordinate plane
-        j = (j[0], -j[1]) #conversion to treat board like coordinate plane
+    #identify locations where lines of opposite color cross each other and find which line was drawn first in these locations
+    crossings = []
+    for j in range(len(board) - 1):
+        for i in range(len(board[0]) - 1):
+            if board[j][i] == "black" and board[j + 1][i] == "white" and board[j][i + 1] == "white" and board[j + 1][i + 1] == "black":
+                a = pixelsDrawn.index((i, j))
+                b = pixelsDrawn.index((i, j + 1))
+                c = pixelsDrawn.index((i + 1, j))
+                d = pixelsDrawn.index((i + 1, j + 1))
+                if (a > b and a > c) or (d > b) and (d > c):
+                    crossings.append((i, j, "white"))
+                else:
+                    crossings.append((i, j, "black"))
+            elif board[j][i] == "white" and board[j + 1][i] == "black" and board[j][i + 1] == "black" and board[j + 1][i + 1] == "white":
+                a = pixelsDrawn.index((i, j))
+                b = pixelsDrawn.index((i, j + 1))
+                c = pixelsDrawn.index((i + 1, j))
+                d = pixelsDrawn.index((i + 1, j + 1))
+                if (a > b and a > c) or (d > b) and (d > c):
+                    crossings.append((i, j, "black"))
+                else:
+                    crossings.append((i, j, "white"))
 
-        #skip lines for which shortestLine[0] has already been adjusted
-        if (i, j) in firstPointIntersect:
-            continue
 
-        #attempt:
-        #if inBox(shortestLine[0], (i, j), INTERSECTDIST):
-        #    continue
 
-        a, b = parallelLines((i, j), INTERSECTDIST)
-        newPoint = linesIntersect((shortestLine[0], shortestLine[1]), a)
-        if newPoint != None:
-            #print("A")
-            #print(shortestLine)
-            shortestLine = (shortestLine[0], newPoint)
-            #print(shortestLine)
-        newPoint = linesIntersect((shortestLine[0], shortestLine[1]), b)
-        if newPoint != None:
-            #print("B")
-            #print(shortestLine)
-            shortestLine = (shortestLine[0], newPoint)
-            #print(shortestLine)
-        newPoint = circleLineIntersect((shortestLine[0], shortestLine[1]), i, INTERSECTDIST)
-        if newPoint != None:
-            #print("C")
-            #print(shortestLine)
-            shortestLine = (shortestLine[0], newPoint)
-            #print(shortestLine)
-        newPoint = circleLineIntersect((shortestLine[0], shortestLine[1]), j, INTERSECTDIST)
-        if newPoint != None:
-            #print("D")
-            #print(shortestLine)
-            shortestLine = (shortestLine[0], newPoint)
-            #print(shortestLine)
-        if shortestLine[0] == shortestLine[1]:
-            return None
 
-    #print("shortestLine end:")
-    #print(shortestLine)
 
-    return ((shortestLine[0][0], -shortestLine[0][1]), (shortestLine[1][0], -shortestLine[1][1])) #conversion back to original coordinates
+
+
+    #divides the board into sections for each color via floodFillSection
+    blackSections = [] #list of sections segmented by black's pixels
+    blackFilled = [] #list of pixels checked for black segmentation already
+    whiteSections = [] #list of sections segmented by white's pixels
+    whiteFilled = [] #list of pixels checked for white segmentation already
+    for j in range(len(board)):
+        for i in range(len(board[0])):
+            if board[j][i] != "black" and (i, j) not in blackFilled:
+                newSection = floodFillSection(board, (i, j), "black")
+                blackSections.append(newSection)
+                blackFilled += newSection[0]
+            if board[j][i] != "white" and (i, j) not in whiteFilled:
+                newSection = floodFillSection(board, (i, j), "white")
+                whiteSections.append(newSection)
+                whiteFilled += newSection[0]
+
+
+
+    #combine sections that should connect across a crossing
+    for i in crossings:
+        x = i[0]
+        y = i[1]
+        if i[2] == "black":
+            if board[y][x] == "black":
+                j = 0
+                while j < len(whiteSections):
+                    if (x, y) in whiteSections[j][0]:
+                        if (x + 1, y + 1) not in whiteSections[j][0]:
+                            k = 0
+                            while k < len(whiteSections):
+                                if (x + 1, y + 1) in whiteSections[k][0]:
+                                    newSection0 = whiteSections[j][0] + whiteSections[k][0]
+                                    newSection1 = whiteSections[j][1]
+                                    for l in whiteSections[k][1]:
+                                        if l not in newSection1:
+                                            newSection1.append(l)
+                                    whiteSections[j] = (newSection0, newSection1)
+                                    del whiteSections[k]
+                                    break
+                                k += 1
+                        break
+                    j += 1
+            elif board[y][x] == "white":
+                j = 0
+                while j < len(whiteSections):
+                    if (x + 1, y) in whiteSections[j][0]:
+                        if (x, y + 1) not in whiteSections[j][0]:
+                            k = 0
+                            while k < len(whiteSections):
+                                if (x, y + 1) in whiteSections[k][0]:
+                                    newSection0 = whiteSections[j][0] + whiteSections[k][0]
+                                    newSection1 = whiteSections[j][1]
+                                    for l in whiteSections[k][1]:
+                                        if l not in newSection1:
+                                            newSection1.append(l)
+                                    whiteSections[j] = (newSection0, newSection1)
+                                    del whiteSections[k]
+                                    break
+                                k += 1
+                        break
+                    j += 1
+        elif i[2] == "white":
+            if board[y][x] == "white":
+                j = 0
+                while j < len(blackSections):
+                    if (x, y) in blackSections[j][0]:
+                        if (x + 1, y + 1) not in blackSections[j][0]:
+                            k = 0
+                            while k < len(blackSections):
+                                if (x + 1, y + 1) in blackSections[k][0]:
+                                    newSection0 = blackSections[j][0] + blackSections[k][0]
+                                    newSection1 = blackSections[j][1]
+                                    for l in blackSections[k][1]:
+                                        if l not in newSection1:
+                                            newSection1.append(l)
+                                    blackSections[j] = (newSection0, newSection1)
+                                    del blackSections[k]
+                                    break
+                                k += 1
+                        break
+                    j += 1
+            elif board[y][x] == "black":
+                j = 0
+                while j < len(blackSections):
+                    if (x + 1, y) in blackSections[j][0]:
+                        if (x, y + 1) not in blackSections[j][0]:
+                            k = 0
+                            while k < len(blackSections):
+                                if (x, y + 1) in blackSections[k][0]:
+                                    newSection0 = blackSections[j][0] + blackSections[k][0]
+                                    newSection1 = blackSections[j][1]
+                                    for l in blackSections[k][1]:
+                                        if l not in newSection1:
+                                            newSection1.append(l)
+                                    blackSections[j] = (newSection0, newSection1)
+                                    del blackSections[k]
+                                    break
+                                k += 1
+                        break
+                    j += 1
+
+
+
+
+    #eliminates sections larger than SCORETHRESHOLD as they are too large to count
+    i = 0
+    #blackPixels = []
+    while i < len(blackSections):
+        if len(blackSections[i][0]) + len(blackSections[i][1]) > SCORETHRESHOLD:
+            del blackSections[i]
+        else:
+            #blackPixels += blackSections[i]
+            i += 1
+    i = 0
+    #whitePixels = []
+    while i < len(whiteSections):
+        if len(whiteSections[i][0]) + len(whiteSections[i][1]) > SCORETHRESHOLD:
+            del whiteSections[i]
+        else:
+            #whitePixels += whiteSections[i]
+            i += 1
+
+    '''
+    print("\n")
+    print("blackSections:")
+    print(blackSections)
+    print("whiteSections:")
+    print(whiteSections)
+    '''
+
+
+    #segment the connected lines of each color into groups
+    blackLineGroups = []
+    whiteLineGroups = []
+    blackPixels = []
+    whitePixels = []
+    for j in range(len(board)):
+        for i in range(len(board[0])):
+            if board[j][i] == "":
+                continue
+            elif board[j][i] == "black" and (i, j) not in blackPixels:
+                s = [(i, j)]
+                pixels = [(i, j)]
+                while len(s) > 0:
+                    position = s.pop()
+                    currentNeighbors = neighbors(position, board)
+                    for i in currentNeighbors:
+                        if (i not in pixels) and (not illegalConnection(position, i, crossings, board)):
+                            s.append(i)
+                            pixels.append(i)
+                blackLineGroups.append(pixels)
+                blackPixels += pixels
+            elif board[j][i] == "white" and (i, j) not in whitePixels:
+                s = [(i, j)]
+                pixels = [(i, j)]
+                while len(s) > 0:
+                    position = s.pop()
+                    currentNeighbors = neighbors(position, board)
+                    for i in currentNeighbors:
+                        if (i not in pixels) and (not illegalConnection(position, i, crossings, board)):
+                            s.append(i)
+                            pixels.append(i)
+                whiteLineGroups.append(pixels)
+                whitePixels += pixels
+
+    '''
+    print("\n")
+    print("blackLineGroups:")
+    print(blackLineGroups)
+    print("whiteLineGroups:")
+    print(whiteLineGroups)
+    '''
+
+
+
+
+
+    #combine sections and line groups into groups by determining the connections between sections and groups
+    #then eliminate groups that are too small and consolidate all pixels for each color into one list
+    originalBlackSections = copy.deepcopy(blackSections)
+    finalBlackPixels = []
+    while len(blackSections) > 0:
+        group = blackSections.pop()
+        while True:
+            startLength = len(group[1])
+            i = 0
+            while i < len(blackSections):
+                for j in blackSections[i][1]:
+                    if j in group[1]:
+                        newBorderGroup = group[1]
+                        for k in blackSections[i][1]:
+                            if k not in newBorderGroup:
+                                newBorderGroup.append(k)
+                        group = (group[0] + blackSections[i][0], newBorderGroup)
+                        del blackSections[i]
+                        i -= 1
+                        break
+                i += 1
+            i = 0
+            while i < len(blackLineGroups):
+                for j in blackLineGroups[i]:
+                    if j in group[1]:
+                        newBorderGroup = group[1]
+                        for k in blackLineGroups[i]:
+                            if k not in newBorderGroup:
+                                newBorderGroup.append(k)
+                        group = (group[0], newBorderGroup)
+                        del blackLineGroups[i]
+                        i -= 1
+                        break
+                i += 1
+            if startLength == len(group[1]):
+                break
+        '''
+        #for pure Chinese scoring:
+        if len(group[0]) + len(group[1]) >= SCORETHRESHOLD:
+            finalBlackPixels += group[0]
+            finalBlackPixels += group[1]
+        '''
+        newGroup = []
+        for i in originalBlackSections:
+            if i[0][0] in group[0]:
+                newGroup += i[0]
+                newGroup += i[1]
+        if len(newGroup) >= SCORETHRESHOLD:
+            finalBlackPixels += newGroup
+
+
+    originalWhiteSections = copy.deepcopy(whiteSections)
+    finalWhitePixels = []
+    while len(whiteSections) > 0:
+        group = whiteSections.pop()
+        while True:
+            startLength = len(group[1])
+            i = 0
+            while i < len(whiteSections):
+                for j in whiteSections[i][1]:
+                    if j in group[1]:
+                        newBorderGroup = group[1]
+                        for k in whiteSections[i][1]:
+                            if k not in newBorderGroup:
+                                newBorderGroup.append(k)
+                        group = (group[0] + whiteSections[i][0], newBorderGroup)
+                        del whiteSections[i]
+                        i -= 1
+                        break
+                i += 1
+            i = 0
+            while i < len(whiteLineGroups):
+                for j in whiteLineGroups[i]:
+                    if j in group[1]:
+                        newBorderGroup = group[1]
+                        for k in whiteLineGroups[i]:
+                            if k not in newBorderGroup:
+                                newBorderGroup.append(k)
+                        group = (group[0], newBorderGroup)
+                        del whiteLineGroups[i]
+                        i -= 1
+                        break
+                i += 1
+            if startLength == len(group[1]):
+                break
+        '''
+        if len(group[0]) + len(group[1]) >= SCORETHRESHOLD:
+            finalWhitePixels += group[0]
+            finalWhitePixels += group[1]
+        '''
+        newGroup = []
+        for i in originalWhiteSections:
+            if i[0][0] in group[0]:
+                newGroup += i[0]
+                newGroup += i[1]
+        if len(newGroup) >= SCORETHRESHOLD:
+            finalWhitePixels += newGroup
+
+
+
+
+
+
+
+
+
+
+
+
+
+    '''
+    #eliminate lines between groups out in the open (consider whether to use this)
+    for i in range(len(blackGroups)):
+        j = 0
+        while j < len(blackGroups[i][1]):
+            point = blackGroups[i][1][j]
+            if isInsideMargins((point[0] - 1, point[1] - 1)) and (point[0] - 1, point[1] - 1) in blackGroups[i][0]:
+                j += 1
+                continue
+            if isInsideMargins((point[0] - 1, point[1])) and (point[0] - 1, point[1]) in blackGroups[i][0]:
+                j += 1
+                continue
+            if isInsideMargins((point[0] - 1, point[1] + 1)) and (point[0] - 1, point[1] + 1) in blackGroups[i][0]:
+                j += 1
+                continue
+            if isInsideMargins((point[0], point[1] - 1)) and (point[0], point[1] - 1) in blackGroups[i][0]:
+                j += 1
+                continue
+            if isInsideMargins((point[0], point[1] + 1)) and (point[0], point[1] + 1) in blackGroups[i][0]:
+                j += 1
+                continue
+            if isInsideMargins((point[0] + 1, point[1] - 1)) and (point[0] + 1, point[1] - 1) in blackGroups[i][0]:
+                j += 1
+                continue
+            if isInsideMargins((point[0] + 1, point[1])) and (point[0] + 1, point[1]) in blackGroups[i][0]:
+                j += 1
+                continue
+            if isInsideMargins((point[0] + 1, point[1] + 1)) and (point[0] + 1, point[1] + 1) in blackGroups[i][0]:
+                j += 1
+                continue
+            del blackGroups[i][1][j]
+
+    for i in range(len(whiteGroups)):
+        j = 0
+        while j < len(whiteGroups[i][1]):
+            point = whiteGroups[i][1][j]
+            if isInsideMargins((point[0] - 1, point[1] - 1)) and (point[0] - 1, point[1] - 1) in whiteGroups[i][0]:
+                j += 1
+                continue
+            if isInsideMargins((point[0] - 1, point[1])) and (point[0] - 1, point[1]) in whiteGroups[i][0]:
+                j += 1
+                continue
+            if isInsideMargins((point[0] - 1, point[1] + 1)) and (point[0] - 1, point[1] + 1) in whiteGroups[i][0]:
+                j += 1
+                continue
+            if isInsideMargins((point[0], point[1] - 1)) and (point[0], point[1] - 1) in whiteGroups[i][0]:
+                j += 1
+                continue
+            if isInsideMargins((point[0], point[1] + 1)) and (point[0], point[1] + 1) in whiteGroups[i][0]:
+                j += 1
+                continue
+            if isInsideMargins((point[0] + 1, point[1] - 1)) and (point[0] + 1, point[1] - 1) in whiteGroups[i][0]:
+                j += 1
+                continue
+            if isInsideMargins((point[0] + 1, point[1])) and (point[0] + 1, point[1]) in whiteGroups[i][0]:
+                j += 1
+                continue
+            if isInsideMargins((point[0] + 1, point[1] + 1)) and (point[0] + 1, point[1] + 1) in whiteGroups[i][0]:
+                j += 1
+                continue
+            del whiteGroups[i][1][j]
+    '''
+
+
+
+
+
+    #replaces the board with a scored version and determines final score
+    blackScore = 0
+    whiteScore = 0
+    bothScore = 0
+    neitherScore = 0
+    for j in range(len(board)):
+        for i in range(len(board[0])):
+            if (i, j) in finalBlackPixels:
+                if (i, j) in finalWhitePixels:
+                    board[j][i] = "gray"
+                    bothScore += 1
+                else:
+                    board[j][i] = "black"
+                    blackScore += 1
+            elif (i, j) in finalWhitePixels:
+                board[j][i] = "white"
+                whiteScore += 1
+            else:
+                board[j][i] = ""
+                neitherScore += 1
+
+    return (board, blackScore, whiteScore, bothScore, neitherScore)
+
+
+
+
+
+
+def checkAreas(board, color):
+    #run a game loop where the user can click on sections to get the areas
+    tempBoard = copy.deepcopy(board)
+    drawScoredBoard(tempBoard, True)
+    RESUMEBUTTON.draw()
+    filledSections = []
+    while True:
+        for event in pygame.event.get():
+            position = convertScreenToBoard(pygame.mouse.get_pos())
+            if isInsideMargins(position):
+                if event.type == MOUSEBUTTONDOWN:
+                    recentClick = True #flag that user has clicked and not moved the mouse
+                elif event.type == MOUSEBUTTONUP:
+                    if recentClick:
+                        if board[position[1]][position[0]] != color: #have not clicked on territory's boundary, so can proceed to fill or unfill
+                            if tempBoard[position[1]][position[0]] != "green":
+                                x = floodFillSection(board, position, color)
+                                newSection = x[0] + x[1]
+                                filledSections.append(newSection)
+                                for i in newSection:
+                                    tempBoard[i[1]][i[0]] = "green"
+                            else:
+                                breakLoop = False
+                                for i in filledSections:
+                                    for j in i:
+                                        if j == position:
+                                            filledSections.remove(i)
+                                            tempBoard = copy.deepcopy(board)
+                                            for a in filledSections:
+                                                for b in a:
+                                                    tempBoard[b[1]][b[0]] = "green"
+                                            breakLoop = True
+                                            break
+                                    if breakLoop:
+                                        breakLoop = False
+                                        break
+                            drawScoredBoard(tempBoard, True)
+                            RESUMEBUTTON.draw()
+
+
+                            score = 0
+                            for i in tempBoard:
+                                for j in i:
+                                    if j == "green":
+                                        score += 1
+                            #score = 0
+                            #for i in filledSections:
+                            #    score += len(i)
+
+                            score = score / SQUARE
+
+                            drawHighlightedScore(color, score)
+                        recentClick = False
+                elif event.type == MOUSEMOTION:
+                    recentClick = False
+            else:
+                if event.type == MOUSEBUTTONDOWN:
+                    recentClick = True
+                elif event.type == MOUSEBUTTONUP:
+                    if recentClick:
+                        position = pygame.mouse.get_pos()
+                        if RESUMEBUTTON.isOver(position):
+                            return
+                    recentClick = False
+                elif event.type == MOUSEMOTION:
+                    recentClick = False
+            checkForQuit(event)
+        pygame.display.update()
+
+
+
+
 
 def checkForQuit(event):
     #if the user has quit or hit the escape key, quit the program
@@ -852,61 +1383,14 @@ def checkForQuit(event):
 if __name__ == '__main__':
     main()
 
-#to do:
-#determine if I need EPSILON
-#make written displays like go
-#figure out if drawing length should equal space size
-#make potential line reflect checkIntersection cutoff
-    #problems:
-        #still observing crossing-over errors in complex situations
-            #investigate whether results of inBox and results of circleLineIntersect may conflict
-                #changes to circleLineIntersect still don't solve problem RESUME HERE
-        #to do: change name of "potentialOffBoard" now that I'm using it for another purpose
-#consider discretizing inputs
-#investigate clock
-#handle cases where user only has a tiny amount left to draw
-
-#eventually do:
-#allow player to redo turn so far or at least cancel current drawing
-#check if need the double "for event in pygame.event.get():"
-#clarify difference in main between continue and break
-#make the slider draggable
-#distinguish last turn, probably via color
-#allow querying of groups and distance between groups
-#allow planning phase to try to draw lines and then button to click for confirmation
-#add ability to find area completely enclosed (like "fill" in Paint) in order for player to be able to count
-    #or possibly even almost completely enclosed
-    #or make player draw around territory to query the area
-#fill in enclosed area smaller than (or equal to) X with player's color (including area enclosed between discs)
-    #X = minimum area to make life
-    #whenever something is filled add text of area over it
-    #add these numbers to total on side bar
-    #area connected to/added to shaded group is automatically shaded
-    #once a shaded group supasses (or is equal to) X, it can't be captured
-    #condsider: do light shading when <X and then fully black/white when greater
-#add clock
-#allow competitive play on different computers
-#determine and add komi
-
-#consider:
-#add feature to either be able to check if line A is connected to line B, or to tell if an opening is closed
-#add feature to calculate distance or even draw line from point a to point b even if it has to go around another line
-    #maybe with right clicks
-#allowing pass of the end of a turn (like when player has two pixels left to draw)
-#making version with only option to plop down one line per turn at different angles
-    #with potential line that rotates via scrolling
-#add ability to zoom
-#automatic enclosing to help players close off area
-#have panel to choose ways to draw lines
-    #see full length of straight line
-    #point to point like in Paint
-    #free-hand
-    #circle
-        #could just hold in mouse for expanding circle
-    #curve?
-#add light shading based on likely future of area
-#add panel to keep track of all the groups on the board
-#decide whether to add option to pass
-    #one way to maintain passing would be to disallow territory additions so small as to be below a certain threshold
-        #this would make moving after a certain point useless
-#change mouse pointer (for visibility)
+#to do: speed up scoring
+    #revise 0.97 threshold
+        #with higher threshold, sometimes mistakenly left with very small draw after what should be a full line
+    #check if need to pump
+    #figure out gridline color (GRAYALPHA)
+    #determine if better way to write text than current FONT method
+    #make sure displays work with different screen sizes
+    #figure out resizing/zooming
+    #add line weaving function
+    #change drawing information to percentage
+    #add ability to undo turns
