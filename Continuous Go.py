@@ -36,7 +36,7 @@ GRAYALPHA   = pygame.Color(128, 128, 128, 100)
 RED         = pygame.Color(255, 0,   0)
 GREEN       = pygame.Color(0,   255, 0)
 LIGHTGRAY   = pygame.Color(200, 200, 200)
-BLUE        = pygame.Color(0,   0,   192)
+BLUE        = pygame.Color(0,   0,   232)
 
 TEXTCOLOR           = WHITE
 BOARDCOLOR          = TAN #background color of board, including margins
@@ -361,6 +361,13 @@ def findLine(start, end, turn, board, turnLength):
         return findLine(newResult[0], newResult[-1], turn, board, turnLength) #redo algorithm on this new range
     return newResult
 
+def color(col):
+    # converts turn to color
+    if col == 'white':
+        return WHITE
+    if col == 'black':
+        return BLACK
+
 def drawBoard(boardLines, turn, turnLength, magnetDist):
     #draws the board and the informational text about the game
 
@@ -398,7 +405,7 @@ def drawBoard(boardLines, turn, turnLength, magnetDist):
 
     #draw the lines on the board created by the players
     for i in boardLines:
-        pygame.draw.line(DISPLAYSURF, i[2], convertBoardToScreen(i[0]), convertBoardToScreen(i[1]))
+        pygame.draw.line(DISPLAYSURF, color(i[2]), convertBoardToScreen(i[0]), convertBoardToScreen(i[1]))
 
     #draw informational text about the state of the game
     drawTurn(turn)
@@ -677,133 +684,73 @@ def contiguous(positions):
 
 
 
+
+
+
+
 def floodFillSection(board, point, color):
     #fills in section by getting list of pixels within area contained by lines of given color via algorithm found on Wikipedia
     #also return list of pixels of given color on borders surrounding this section (both inside and out)
     s = [] #stack of points to check
-    fillList = [] #fill points
-    borderList = [] #border points
+    fillSet = set() #fill points
+    borderSet = set() #border points
     s.append((point, (0, 0, "")))
     while len(s) > 0:
         temp = s.pop()
         point = temp[0]
         completedRange = temp[1]
-        #fill in the row to the left and right of point; add the pixels to the left and right of this range to borderList
+        #fill in the row to the left and right of point; add the pixels to the left and right of this range to borderSet
         leftPoint = (point[0] - 1, point[1])
-        while isInsideMargins(leftPoint) and leftPoint not in fillList and board[leftPoint[1]][leftPoint[0]] != color:
-            fillList.append(leftPoint)
+        while isInsideMargins(leftPoint) and board[leftPoint[1]][leftPoint[0]] != color:
+            fillSet.add(leftPoint)
             leftPoint = (leftPoint[0] - 1, leftPoint[1])
-        if isInsideMargins(leftPoint) and leftPoint not in borderList and board[leftPoint[1]][leftPoint[0]] == color:
-            borderList.append(leftPoint)
-        while isInsideMargins(point) and point not in fillList and board[point[1]][point[0]] != color:
-            fillList.append(point)
+        if isInsideMargins(leftPoint) and board[leftPoint[1]][leftPoint[0]] == color:
+            borderSet.add(leftPoint)
+        while isInsideMargins(point) and board[point[1]][point[0]] != color:
+            fillSet.add(point)
             point = (point[0] + 1, point[1])
-        if isInsideMargins(point) and point not in borderList and board[point[1]][point[0]] == color:
-            borderList.append(point)
-        #add the rows above and below point to the stack; add the border points here to borderList
+        if isInsideMargins(point) and board[point[1]][point[0]] == color:
+            borderSet.add(point)
+        #add the rows above and below point to the stack; add the border points here to borderSet
         added = False
         for i in range(leftPoint[0] + 1, point[0]):
+            newPoint = (i, point[1] - 1)
+            if not isInsideMargins(newPoint):
+                break
             if completedRange[2] == "below" and (completedRange[0] <= i and i < completedRange[1]):
                 continue
-            newPoint = (i, point[1] - 1)
-            if not isInsideMargins(newPoint) or newPoint in fillList or board[newPoint[1]][newPoint[0]] == color:
-                if isInsideMargins(newPoint) and newPoint not in borderList and board[newPoint[1]][newPoint[0]] == color:
-                    borderList.append(newPoint)
+            if newPoint in fillSet or board[newPoint[1]][newPoint[0]] == color:
+                if board[newPoint[1]][newPoint[0]] == color:
+                    borderSet.add(newPoint)
                 added = False
             elif not added:
                 s.append((newPoint, (leftPoint[0] + 1, point[0], "above")))
                 added = True
         added = False
         for i in range(leftPoint[0] + 1, point[0]):
+            newPoint = (i, point[1] + 1)
+            if not isInsideMargins(newPoint):
+                break
             if completedRange[2] == "above" and (completedRange[0] <= i and i < completedRange[1]):
                 continue
-            newPoint = (i, point[1] + 1)
-            if not isInsideMargins(newPoint) or newPoint in fillList or board[newPoint[1]][newPoint[0]] == color:
-                if isInsideMargins(newPoint) and newPoint not in borderList and board[newPoint[1]][newPoint[0]] == color:
-                    borderList.append(newPoint)
+            if newPoint in fillSet or board[newPoint[1]][newPoint[0]] == color:
+                if board[newPoint[1]][newPoint[0]] == color:
+                    borderSet.add(newPoint)
                 added = False
             elif not added:
                 s.append((newPoint, (leftPoint[0] + 1, point[0], "below")))
                 added = True
-        #add any corners of the range checked to borderList
+        #add any corners of the range checked to borderSet
         corners = [(leftPoint[0], point[1] - 1), (point[0], point[1] - 1), (leftPoint[0], point[1] + 1), (point[0], point[1] + 1)]
         for corner in corners:
-            if isInsideMargins(corner) and corner not in borderList and board[corner[1]][corner[0]] == color:
-                borderList.append(corner)
+            if isInsideMargins(corner) and board[corner[1]][corner[0]] == color:
+                borderSet.add(corner)
 
     #print("\n")
-    #print("borderList:")
-    #print(borderList)
+    #print("borderSet:")
+    #print(borderSet)
 
-    return (fillList, borderList)
-
-
-
-
-
-
-
-
-
-
-
-'''
-def floodFillSection(board, point, color):
-    #fills in section by getting list of pixels within area contained by lines of given color via algorithm found on Wikipedia
-    #also return list of pixels of given color on borders surrounding this section (both inside and out)
-    s = [] #stack of points to check
-    fillList = [] #fill points
-    borderList = [] #border points
-    s.append(point)
-    while len(s) > 0:
-        point = s.pop()
-        #fill in the row to the left and right of point; add the pixels to the left and right of this range to borderList
-        leftPoint = (point[0] - 1, point[1])
-        while isInsideMargins(leftPoint) and leftPoint not in fillList and board[leftPoint[1]][leftPoint[0]] != color:
-            fillList.append(leftPoint)
-            leftPoint = (leftPoint[0] - 1, leftPoint[1])
-        if isInsideMargins(leftPoint) and leftPoint not in borderList and board[leftPoint[1]][leftPoint[0]] == color:
-            borderList.append(leftPoint)
-        while isInsideMargins(point) and point not in fillList and board[point[1]][point[0]] != color:
-            fillList.append(point)
-            point = (point[0] + 1, point[1])
-        if isInsideMargins(point) and point not in borderList and board[point[1]][point[0]] == color:
-            borderList.append(point)
-        #add the rows above and below point to the stack; add the border points here to borderList
-        added = False
-        for i in range(leftPoint[0] + 1, point[0]):
-            newPoint = (i, point[1] - 1)
-            if not isInsideMargins(newPoint) or newPoint in fillList or board[newPoint[1]][newPoint[0]] == color:
-                if isInsideMargins(newPoint) and newPoint not in borderList and board[newPoint[1]][newPoint[0]] == color:
-                    borderList.append(newPoint)
-                added = False
-            elif not added:
-                s.append(newPoint)
-                added = True
-        added = False
-        for i in range(leftPoint[0] + 1, point[0]):
-            newPoint = (i, point[1] + 1)
-            if not isInsideMargins(newPoint) or newPoint in fillList or board[newPoint[1]][newPoint[0]] == color:
-                if isInsideMargins(newPoint) and newPoint not in borderList and board[newPoint[1]][newPoint[0]] == color:
-                    borderList.append(newPoint)
-                added = False
-            elif not added:
-                s.append(newPoint)
-                added = True
-        #add any corners of the range checked to borderList
-        corners = [(leftPoint[0], point[1] - 1), (point[0], point[1] - 1), (leftPoint[0], point[1] + 1), (point[0], point[1] + 1)]
-        for corner in corners:
-            if isInsideMargins(corner) and corner not in borderList and board[corner[1]][corner[0]] == color:
-                borderList.append(corner)
-
-    #print("\n")
-    #print("borderList:")
-    #print(borderList)
-
-    return (fillList, borderList)
-'''
-
-
+    return (list(fillSet), list(borderSet))
 
 
 
@@ -859,7 +806,7 @@ def scoreGame(board, pixelsDrawn):
     #on border          remove      if neighbor on border, *    if neighbors touching, remove
     #not on border      remove      *                           if neighbors touching, remove
     if len(board) == 0 or len(board[0]) == 0:
-        return board
+        return (board, 0, 0, 0, 0)
     '''
     #deletes partial lines that are not part of a closed surface; also deletes superfluous pixels
     for j in range(len(board)):
@@ -899,7 +846,7 @@ def scoreGame(board, pixelsDrawn):
                 b = pixelsDrawn.index((i, j + 1))
                 c = pixelsDrawn.index((i + 1, j))
                 d = pixelsDrawn.index((i + 1, j + 1))
-                if (a > b and a > c) or (d > b) and (d > c):
+                if (a > b and a > c) or (d > b and d > c):
                     crossings.append((i, j, "white"))
                 else:
                     crossings.append((i, j, "black"))
@@ -908,7 +855,7 @@ def scoreGame(board, pixelsDrawn):
                 b = pixelsDrawn.index((i, j + 1))
                 c = pixelsDrawn.index((i + 1, j))
                 d = pixelsDrawn.index((i + 1, j + 1))
-                if (a > b and a > c) or (d > b) and (d > c):
+                if (a > b and a > c) or (d > b and d > c):
                     crossings.append((i, j, "black"))
                 else:
                     crossings.append((i, j, "white"))
@@ -916,24 +863,23 @@ def scoreGame(board, pixelsDrawn):
 
 
 
-
-
-
     #divides the board into sections for each color via floodFillSection
     blackSections = [] #list of sections segmented by black's pixels
-    blackFilled = [] #list of pixels checked for black segmentation already
+    blackFilled = set() #set of pixels checked for black segmentation already
     whiteSections = [] #list of sections segmented by white's pixels
-    whiteFilled = [] #list of pixels checked for white segmentation already
+    whiteFilled = set() #set of pixels checked for white segmentation already
     for j in range(len(board)):
         for i in range(len(board[0])):
             if board[j][i] != "black" and (i, j) not in blackFilled:
                 newSection = floodFillSection(board, (i, j), "black")
                 blackSections.append(newSection)
-                blackFilled += newSection[0]
+                blackFilled.update(newSection[0])
             if board[j][i] != "white" and (i, j) not in whiteFilled:
                 newSection = floodFillSection(board, (i, j), "white")
                 whiteSections.append(newSection)
-                whiteFilled += newSection[0]
+                whiteFilled.update(newSection[0])
+
+
 
 
 
@@ -1392,5 +1338,6 @@ if __name__ == '__main__':
     #make sure displays work with different screen sizes
     #figure out resizing/zooming
     #add line weaving function
-    #change drawing information to percentage
     #add ability to undo turns
+    #force end game, consider disallowing drawing over what has already been drawn
+    #condsider tool to check area of neutral territory
