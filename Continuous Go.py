@@ -13,19 +13,18 @@ WINDOWHEIGHT = pygame.Surface.get_size(DISPLAYSURF)[1] - 63 #subtract 63 to acco
 #WINDOWHEIGHT = pygame.Surface.get_size(DISPLAYSURF)[1]
 SPACESIZE = 35 #pixels in one board space; adjust later
 SQUARE = SPACESIZE * SPACESIZE
-#BOARDWIDTH = 19 #rows on board
-#BOARDHEIGHT = 19 #columns on board
-BOARDWIDTH = 5
-BOARDHEIGHT = 5
-KOMI = SQUARE #temporary; adjust later
+BOARDWIDTH = 19 #rows on board
+BOARDHEIGHT = 19 #columns on board
+
+KOMI = SQUARE * 7 #temporary; adjust later
 
 BOARDMARGIN = 2 * SPACESIZE #length of the board's margin, separating the playable area from the table
 TABLEXMARGIN = int((WINDOWWIDTH - (2 * BOARDMARGIN + (BOARDWIDTH - 1) * SPACESIZE)) / 2) #table space between screen edge and board horizontally
 TABLEYMARGIN = int((WINDOWHEIGHT - (2 * BOARDMARGIN + (BOARDHEIGHT - 1) * SPACESIZE)) / 2) #table space between screen edge and board vertically
 
-MAXDRAW = SPACESIZE * 2 #length the user may draw in a turn
+MAXDRAW = SPACESIZE #length the user may draw in a turn
 
-SCORETHRESHOLD = SQUARE #temp threshold, fix later
+SCORETHRESHOLD = SQUARE * 8 #temp threshold, fix later
 
 #                          R    G    B    A
 BLACK       = pygame.Color(0,   0,   0)
@@ -293,7 +292,7 @@ def crossThrough(first, second, turn, board):
 def findLine(start, end, turn, board, turnLength):
     #returns a line composed of pixels from start to end, cut off where appropriate
 
-    #imitation of Pygame code for a line
+    #imitation of Pygame code for a line: https://github.com/pygame/pygame/blob/main/src_c/draw.c, line 1553
     x0 = start[0]
     y0 = start[1]
     x1 = end[0]
@@ -361,7 +360,7 @@ def findLine(start, end, turn, board, turnLength):
         return findLine(newResult[0], newResult[-1], turn, board, turnLength) #redo algorithm on this new range
     return newResult
 
-def color(col):
+def convertColor(col):
     # converts turn to color
     if col == 'white':
         return WHITE
@@ -405,7 +404,7 @@ def drawBoard(boardLines, turn, turnLength, magnetDist):
 
     #draw the lines on the board created by the players
     for i in boardLines:
-        pygame.draw.line(DISPLAYSURF, color(i[2]), convertBoardToScreen(i[0]), convertBoardToScreen(i[1]))
+        pygame.draw.line(DISPLAYSURF, convertColor(i[2]), convertBoardToScreen(i[0]), convertBoardToScreen(i[1]))
 
     #draw informational text about the state of the game
     drawTurn(turn)
@@ -653,44 +652,14 @@ def isOnBorder(position, board):
     return False
 
 
-'''
-def contiguous(positions):
-    #returns True iff the positions are in a contiguous block
-    if len(positions) < 2:
-        return True
-    block = [positions[0]]
-    del positions[0]
-    while True:
-        if len(positions) == 0:
-            return True
-        newBlock = []
-        for i in positions:
-            for j in block:
-                if abs(i[0] - j[0]) <= 1 and abs(i[1] - j[1]) <= 1 and i not in newBlock:
-                    newBlock.append(i)
-        if len(newBlock) == 0:
-            return False
-        for x in newBlock:
-            block.append(x)
-            positions.remove(x)
-'''
-
-
-
-
-
-
-
-
-
 
 
 
 
 
 def floodFillSection(board, point, color):
-    #fills in section by getting list of pixels within area contained by lines of given color via algorithm found on Wikipedia
-    #also return list of pixels of given color on borders surrounding this section (both inside and out)
+    #fills in section by getting set of pixels within area contained by lines of given color via algorithm modified from one found on Wikipedia: https://en.wikipedia.org/wiki/Flood_fill#Span_Filling
+    #also return set of pixels of given color on borders surrounding this section (both inside and out)
     s = [] #stack of points to check
     fillSet = set() #fill points
     borderSet = set() #border points
@@ -750,7 +719,7 @@ def floodFillSection(board, point, color):
     #print("borderSet:")
     #print(borderSet)
 
-    return (list(fillSet), list(borderSet))
+    return (fillSet, borderSet)
 
 
 
@@ -800,45 +769,13 @@ def illegalConnection(a, b, crossings, board):
 def scoreGame(board, pixelsDrawn):
     #scores the game
 
-    #* = remove and check neighbor
-
-    #num neighbors      0           1                           2                               3
-    #on border          remove      if neighbor on border, *    if neighbors touching, remove
-    #not on border      remove      *                           if neighbors touching, remove
     if len(board) == 0 or len(board[0]) == 0:
         return (board, 0, 0, 0, 0)
-    '''
-    #deletes partial lines that are not part of a closed surface; also deletes superfluous pixels
-    for j in range(len(board)):
-        for i in range(len(board[0])):
-            if board[j][i] == "":
-                continue
-            position = (i, j)
-            while True:
-                adjacent = neighbors(position, board)
-                #("next:")
-                #print(position)
-                #print(adjacent)
-                if len(adjacent) == 0:
-                    board[position[1]][position[0]] = ""
-                    break
-                elif len(adjacent) == 1:
-                    if isOnBorder(position, board) and not isOnBorder(adjacent[0], board):
-                        break
-                    board[position[1]][position[0]] = ""
-                    position = adjacent[0]
-                else:
-                    if contiguous(adjacent):
-                        #print("contig")
-                        board[position[1]][position[0]] = ""
-                    break
-    '''
-
 
 
 
     #identify locations where lines of opposite color cross each other and find which line was drawn first in these locations
-    crossings = []
+    crossings = set()
     for j in range(len(board) - 1):
         for i in range(len(board[0]) - 1):
             if board[j][i] == "black" and board[j + 1][i] == "white" and board[j][i + 1] == "white" and board[j + 1][i + 1] == "black":
@@ -847,18 +784,18 @@ def scoreGame(board, pixelsDrawn):
                 c = pixelsDrawn.index((i + 1, j))
                 d = pixelsDrawn.index((i + 1, j + 1))
                 if (a > b and a > c) or (d > b and d > c):
-                    crossings.append((i, j, "white"))
+                    crossings.add((i, j, "white"))
                 else:
-                    crossings.append((i, j, "black"))
+                    crossings.add((i, j, "black"))
             elif board[j][i] == "white" and board[j + 1][i] == "black" and board[j][i + 1] == "black" and board[j + 1][i + 1] == "white":
                 a = pixelsDrawn.index((i, j))
                 b = pixelsDrawn.index((i, j + 1))
                 c = pixelsDrawn.index((i + 1, j))
                 d = pixelsDrawn.index((i + 1, j + 1))
                 if (a > b and a > c) or (d > b and d > c):
-                    crossings.append((i, j, "black"))
+                    crossings.add((i, j, "black"))
                 else:
-                    crossings.append((i, j, "white"))
+                    crossings.add((i, j, "white"))
 
 
 
@@ -882,110 +819,57 @@ def scoreGame(board, pixelsDrawn):
 
 
 
-
     #combine sections that should connect across a crossing
     for i in crossings:
         x = i[0]
         y = i[1]
         if i[2] == "black":
             if board[y][x] == "black":
-                j = 0
-                while j < len(whiteSections):
-                    if (x, y) in whiteSections[j][0]:
-                        if (x + 1, y + 1) not in whiteSections[j][0]:
-                            k = 0
-                            while k < len(whiteSections):
-                                if (x + 1, y + 1) in whiteSections[k][0]:
-                                    newSection0 = whiteSections[j][0] + whiteSections[k][0]
-                                    newSection1 = whiteSections[j][1]
-                                    for l in whiteSections[k][1]:
-                                        if l not in newSection1:
-                                            newSection1.append(l)
-                                    whiteSections[j] = (newSection0, newSection1)
-                                    del whiteSections[k]
+                for j in whiteSections:
+                    if (x, y) in j[0]:
+                        if (x + 1, y + 1) not in j[0]:
+                            for k in whiteSections:
+                                if (x + 1, y + 1) in k[0]:
+                                    whiteSections.append((j[0].union(k[0]), j[1].union(k[1])))
+                                    whiteSections.remove(j)
+                                    whiteSections.remove(k)
                                     break
-                                k += 1
                         break
-                    j += 1
             elif board[y][x] == "white":
-                j = 0
-                while j < len(whiteSections):
-                    if (x + 1, y) in whiteSections[j][0]:
-                        if (x, y + 1) not in whiteSections[j][0]:
-                            k = 0
-                            while k < len(whiteSections):
-                                if (x, y + 1) in whiteSections[k][0]:
-                                    newSection0 = whiteSections[j][0] + whiteSections[k][0]
-                                    newSection1 = whiteSections[j][1]
-                                    for l in whiteSections[k][1]:
-                                        if l not in newSection1:
-                                            newSection1.append(l)
-                                    whiteSections[j] = (newSection0, newSection1)
-                                    del whiteSections[k]
+                for j in whiteSections:
+                    if (x + 1, y) in j[0]:
+                        if (x, y + 1) not in j[0]:
+                            for k in whiteSections:
+                                if (x, y + 1) in k[0]:
+                                    whiteSections.append((j[0].union(k[0]), j[1].union(k[1])))
+                                    whiteSections.remove(j)
+                                    whiteSections.remove(k)
                                     break
-                                k += 1
                         break
-                    j += 1
         elif i[2] == "white":
             if board[y][x] == "white":
-                j = 0
-                while j < len(blackSections):
-                    if (x, y) in blackSections[j][0]:
-                        if (x + 1, y + 1) not in blackSections[j][0]:
-                            k = 0
-                            while k < len(blackSections):
-                                if (x + 1, y + 1) in blackSections[k][0]:
-                                    newSection0 = blackSections[j][0] + blackSections[k][0]
-                                    newSection1 = blackSections[j][1]
-                                    for l in blackSections[k][1]:
-                                        if l not in newSection1:
-                                            newSection1.append(l)
-                                    blackSections[j] = (newSection0, newSection1)
-                                    del blackSections[k]
+                for j in blackSections:
+                    if (x, y) in j[0]:
+                        if (x + 1, y + 1) not in j[0]:
+                            for k in blackSections:
+                                if (x + 1, y + 1) in k[0]:
+                                    blackSections.append((j[0].union(k[0]), j[1].union(k[1])))
+                                    blackSections.remove(j)
+                                    blackSections.remove(k)
                                     break
-                                k += 1
                         break
-                    j += 1
             elif board[y][x] == "black":
-                j = 0
-                while j < len(blackSections):
-                    if (x + 1, y) in blackSections[j][0]:
-                        if (x, y + 1) not in blackSections[j][0]:
-                            k = 0
-                            while k < len(blackSections):
-                                if (x, y + 1) in blackSections[k][0]:
-                                    newSection0 = blackSections[j][0] + blackSections[k][0]
-                                    newSection1 = blackSections[j][1]
-                                    for l in blackSections[k][1]:
-                                        if l not in newSection1:
-                                            newSection1.append(l)
-                                    blackSections[j] = (newSection0, newSection1)
-                                    del blackSections[k]
+                for j in blackSections:
+                    if (x + 1, y) in j[0]:
+                        if (x, y + 1) not in j[0]:
+                            for k in blackSections:
+                                if (x, y + 1) in k[0]:
+                                    blackSections.append((j[0].union(k[0]), j[1].union(k[1])))
+                                    blackSections.remove(j)
+                                    blackSections.remove(k)
                                     break
-                                k += 1
                         break
-                    j += 1
 
-
-
-
-    #eliminates sections larger than SCORETHRESHOLD as they are too large to count
-    i = 0
-    #blackPixels = []
-    while i < len(blackSections):
-        if len(blackSections[i][0]) + len(blackSections[i][1]) > SCORETHRESHOLD:
-            del blackSections[i]
-        else:
-            #blackPixels += blackSections[i]
-            i += 1
-    i = 0
-    #whitePixels = []
-    while i < len(whiteSections):
-        if len(whiteSections[i][0]) + len(whiteSections[i][1]) > SCORETHRESHOLD:
-            del whiteSections[i]
-        else:
-            #whitePixels += whiteSections[i]
-            i += 1
 
     '''
     print("\n")
@@ -996,39 +880,66 @@ def scoreGame(board, pixelsDrawn):
     '''
 
 
+
+    #eliminates sections larger than SCORETHRESHOLD as they are too large to count
+    i = 0
+    while i < len(blackSections):
+        if len(blackSections[i][0]) + len(blackSections[i][1]) > SCORETHRESHOLD:
+            del blackSections[i]
+        else:
+            i += 1
+    i = 0
+    while i < len(whiteSections):
+        if len(whiteSections[i][0]) + len(whiteSections[i][1]) > SCORETHRESHOLD:
+            del whiteSections[i]
+        else:
+            i += 1
+
+
+    '''
+    print("\n")
+    print("blackSections:")
+    print(blackSections)
+    print("whiteSections:")
+    print(whiteSections)
+    '''
+
+
+
     #segment the connected lines of each color into groups
     blackLineGroups = []
     whiteLineGroups = []
-    blackPixels = []
-    whitePixels = []
+    blackPixels = set()
+    whitePixels = set()
     for j in range(len(board)):
         for i in range(len(board[0])):
             if board[j][i] == "":
                 continue
             elif board[j][i] == "black" and (i, j) not in blackPixels:
                 s = [(i, j)]
-                pixels = [(i, j)]
+                pixels = {(i, j)}
                 while len(s) > 0:
                     position = s.pop()
                     currentNeighbors = neighbors(position, board)
                     for i in currentNeighbors:
                         if (i not in pixels) and (not illegalConnection(position, i, crossings, board)):
                             s.append(i)
-                            pixels.append(i)
+                            pixels.add(i)
                 blackLineGroups.append(pixels)
-                blackPixels += pixels
+                blackPixels.update(pixels)
             elif board[j][i] == "white" and (i, j) not in whitePixels:
                 s = [(i, j)]
-                pixels = [(i, j)]
+                pixels = {(i, j)}
                 while len(s) > 0:
                     position = s.pop()
                     currentNeighbors = neighbors(position, board)
                     for i in currentNeighbors:
                         if (i not in pixels) and (not illegalConnection(position, i, crossings, board)):
                             s.append(i)
-                            pixels.append(i)
+                            pixels.add(i)
                 whiteLineGroups.append(pixels)
-                whitePixels += pixels
+                whitePixels.update(pixels)
+
 
     '''
     print("\n")
@@ -1039,183 +950,78 @@ def scoreGame(board, pixelsDrawn):
     '''
 
 
-
-
-
     #combine sections and line groups into groups by determining the connections between sections and groups
-    #then eliminate groups that are too small and consolidate all pixels for each color into one list
+    #then eliminate groups that are too small and consolidate all pixels for each color into one set
     originalBlackSections = copy.deepcopy(blackSections)
-    finalBlackPixels = []
+    finalBlackPixels = set()
     while len(blackSections) > 0:
         group = blackSections.pop()
         while True:
-            startLength = len(group[1])
-            i = 0
-            while i < len(blackSections):
-                for j in blackSections[i][1]:
-                    if j in group[1]:
-                        newBorderGroup = group[1]
-                        for k in blackSections[i][1]:
-                            if k not in newBorderGroup:
-                                newBorderGroup.append(k)
-                        group = (group[0] + blackSections[i][0], newBorderGroup)
-                        del blackSections[i]
-                        i -= 1
-                        break
-                i += 1
-            i = 0
-            while i < len(blackLineGroups):
-                for j in blackLineGroups[i]:
-                    if j in group[1]:
-                        newBorderGroup = group[1]
-                        for k in blackLineGroups[i]:
-                            if k not in newBorderGroup:
-                                newBorderGroup.append(k)
-                        group = (group[0], newBorderGroup)
-                        del blackLineGroups[i]
-                        i -= 1
-                        break
-                i += 1
-            if startLength == len(group[1]):
+            indicator = 0
+            for i in blackSections:
+                if not i[1].isdisjoint(group[1]):
+                    group = (group[0].union(i[0]), group[1].union(i[1]))
+                    blackSections.remove(i)
+                    indicator = 1
+                    break
+            for i in blackLineGroups:
+                if not i.isdisjoint(group[1]):
+                    group = (group[0], group[1].union(i))
+                    blackLineGroups.remove(i)
+                    indicator = 1
+                    break
+            if indicator == 0:
                 break
         '''
         #for pure Chinese scoring:
         if len(group[0]) + len(group[1]) >= SCORETHRESHOLD:
-            finalBlackPixels += group[0]
-            finalBlackPixels += group[1]
+            finalBlackPixels.update(group[0])
+            finalBlackPixels.update(group[1])
         '''
-        newGroup = []
+
+        newGroup = set()
         for i in originalBlackSections:
-            if i[0][0] in group[0]:
-                newGroup += i[0]
-                newGroup += i[1]
+            if not i[0].isdisjoint(group[0]):
+                newGroup.update(i[0])
+                newGroup.update(i[1])
         if len(newGroup) >= SCORETHRESHOLD:
-            finalBlackPixels += newGroup
+            finalBlackPixels.update(newGroup)
 
 
     originalWhiteSections = copy.deepcopy(whiteSections)
-    finalWhitePixels = []
+    finalWhitePixels = set()
     while len(whiteSections) > 0:
         group = whiteSections.pop()
         while True:
-            startLength = len(group[1])
-            i = 0
-            while i < len(whiteSections):
-                for j in whiteSections[i][1]:
-                    if j in group[1]:
-                        newBorderGroup = group[1]
-                        for k in whiteSections[i][1]:
-                            if k not in newBorderGroup:
-                                newBorderGroup.append(k)
-                        group = (group[0] + whiteSections[i][0], newBorderGroup)
-                        del whiteSections[i]
-                        i -= 1
-                        break
-                i += 1
-            i = 0
-            while i < len(whiteLineGroups):
-                for j in whiteLineGroups[i]:
-                    if j in group[1]:
-                        newBorderGroup = group[1]
-                        for k in whiteLineGroups[i]:
-                            if k not in newBorderGroup:
-                                newBorderGroup.append(k)
-                        group = (group[0], newBorderGroup)
-                        del whiteLineGroups[i]
-                        i -= 1
-                        break
-                i += 1
-            if startLength == len(group[1]):
+            indicator = 0
+            for i in whiteSections:
+                if not i[1].isdisjoint(group[1]):
+                    group = (group[0].union(i[0]), group[1].union(i[1]))
+                    whiteSections.remove(i)
+                    indicator = 1
+                    break
+            for i in whiteLineGroups:
+                if not i.isdisjoint(group[1]):
+                    group = (group[0], group[1].union(i))
+                    whiteLineGroups.remove(i)
+                    indicator = 1
+                    break
+            if indicator == 0:
                 break
         '''
+        #for pure Chinese scoring:
         if len(group[0]) + len(group[1]) >= SCORETHRESHOLD:
-            finalWhitePixels += group[0]
-            finalWhitePixels += group[1]
+            finalWhitePixels.update(group[0])
+            finalWhitePixels.update(group[1])
         '''
-        newGroup = []
+
+        newGroup = set()
         for i in originalWhiteSections:
-            if i[0][0] in group[0]:
-                newGroup += i[0]
-                newGroup += i[1]
+            if not i[0].isdisjoint(group[0]):
+                newGroup.update(i[0])
+                newGroup.update(i[1])
         if len(newGroup) >= SCORETHRESHOLD:
-            finalWhitePixels += newGroup
-
-
-
-
-
-
-
-
-
-
-
-
-
-    '''
-    #eliminate lines between groups out in the open (consider whether to use this)
-    for i in range(len(blackGroups)):
-        j = 0
-        while j < len(blackGroups[i][1]):
-            point = blackGroups[i][1][j]
-            if isInsideMargins((point[0] - 1, point[1] - 1)) and (point[0] - 1, point[1] - 1) in blackGroups[i][0]:
-                j += 1
-                continue
-            if isInsideMargins((point[0] - 1, point[1])) and (point[0] - 1, point[1]) in blackGroups[i][0]:
-                j += 1
-                continue
-            if isInsideMargins((point[0] - 1, point[1] + 1)) and (point[0] - 1, point[1] + 1) in blackGroups[i][0]:
-                j += 1
-                continue
-            if isInsideMargins((point[0], point[1] - 1)) and (point[0], point[1] - 1) in blackGroups[i][0]:
-                j += 1
-                continue
-            if isInsideMargins((point[0], point[1] + 1)) and (point[0], point[1] + 1) in blackGroups[i][0]:
-                j += 1
-                continue
-            if isInsideMargins((point[0] + 1, point[1] - 1)) and (point[0] + 1, point[1] - 1) in blackGroups[i][0]:
-                j += 1
-                continue
-            if isInsideMargins((point[0] + 1, point[1])) and (point[0] + 1, point[1]) in blackGroups[i][0]:
-                j += 1
-                continue
-            if isInsideMargins((point[0] + 1, point[1] + 1)) and (point[0] + 1, point[1] + 1) in blackGroups[i][0]:
-                j += 1
-                continue
-            del blackGroups[i][1][j]
-
-    for i in range(len(whiteGroups)):
-        j = 0
-        while j < len(whiteGroups[i][1]):
-            point = whiteGroups[i][1][j]
-            if isInsideMargins((point[0] - 1, point[1] - 1)) and (point[0] - 1, point[1] - 1) in whiteGroups[i][0]:
-                j += 1
-                continue
-            if isInsideMargins((point[0] - 1, point[1])) and (point[0] - 1, point[1]) in whiteGroups[i][0]:
-                j += 1
-                continue
-            if isInsideMargins((point[0] - 1, point[1] + 1)) and (point[0] - 1, point[1] + 1) in whiteGroups[i][0]:
-                j += 1
-                continue
-            if isInsideMargins((point[0], point[1] - 1)) and (point[0], point[1] - 1) in whiteGroups[i][0]:
-                j += 1
-                continue
-            if isInsideMargins((point[0], point[1] + 1)) and (point[0], point[1] + 1) in whiteGroups[i][0]:
-                j += 1
-                continue
-            if isInsideMargins((point[0] + 1, point[1] - 1)) and (point[0] + 1, point[1] - 1) in whiteGroups[i][0]:
-                j += 1
-                continue
-            if isInsideMargins((point[0] + 1, point[1])) and (point[0] + 1, point[1]) in whiteGroups[i][0]:
-                j += 1
-                continue
-            if isInsideMargins((point[0] + 1, point[1] + 1)) and (point[0] + 1, point[1] + 1) in whiteGroups[i][0]:
-                j += 1
-                continue
-            del whiteGroups[i][1][j]
-    '''
-
-
+            finalWhitePixels.update(newGroup)
 
 
 
@@ -1264,7 +1070,7 @@ def checkAreas(board, color):
                         if board[position[1]][position[0]] != color: #have not clicked on territory's boundary, so can proceed to fill or unfill
                             if tempBoard[position[1]][position[0]] != "green":
                                 x = floodFillSection(board, position, color)
-                                newSection = x[0] + x[1]
+                                newSection = x[0].union(x[1])
                                 filledSections.append(newSection)
                                 for i in newSection:
                                     tempBoard[i[1]][i[0]] = "green"
@@ -1329,7 +1135,7 @@ def checkForQuit(event):
 if __name__ == '__main__':
     main()
 
-#to do: speed up scoring
+#to do:
     #revise 0.97 threshold
         #with higher threshold, sometimes mistakenly left with very small draw after what should be a full line
     #check if need to pump
@@ -1341,3 +1147,5 @@ if __name__ == '__main__':
     #add ability to undo turns
     #force end game, consider disallowing drawing over what has already been drawn
     #condsider tool to check area of neutral territory
+    #fix game loop: should use both while True and for event?; goal: should have low use when doing nothing
+    #somehow make it easier to check for tiny gaps in lines
