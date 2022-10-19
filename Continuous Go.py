@@ -1,3 +1,5 @@
+#current version
+
 import pygame
 from pygame.locals import *
 import sys, os
@@ -11,31 +13,32 @@ DISPLAYSURF = pygame.display.set_mode(flags=pygame.RESIZABLE)
 WINDOWWIDTH = pygame.Surface.get_size(DISPLAYSURF)[0]
 WINDOWHEIGHT = pygame.Surface.get_size(DISPLAYSURF)[1] - 63 #subtract 63 to account for taskbar
 #WINDOWHEIGHT = pygame.Surface.get_size(DISPLAYSURF)[1]
-SPACESIZE = 35 #pixels in one board space; adjust later
+SPACESIZE = 35 #pixels in one board space; temporary value
 SQUARE = SPACESIZE * SPACESIZE
 BOARDWIDTH = 19 #rows on board
 BOARDHEIGHT = 19 #columns on board
 
-KOMI = SQUARE * 7 #temporary; adjust later
+KOMI = SQUARE * 7 #komi (offset for first mover advantage); temporary value
 
 BOARDMARGIN = 2 * SPACESIZE #length of the board's margin, separating the playable area from the table
 TABLEXMARGIN = int((WINDOWWIDTH - (2 * BOARDMARGIN + (BOARDWIDTH - 1) * SPACESIZE)) / 2) #table space between screen edge and board horizontally
 TABLEYMARGIN = int((WINDOWHEIGHT - (2 * BOARDMARGIN + (BOARDHEIGHT - 1) * SPACESIZE)) / 2) #table space between screen edge and board vertically
 
-MAXDRAW = SPACESIZE #length the user may draw in a turn
+MAXDRAW = SPACESIZE * 4 #length the user may draw in a turn; temporary value
 
-SCORETHRESHOLD = SQUARE * 8 #temp threshold, fix later
+SCORETHRESHOLD = SQUARE * 8 #both max size of a section area and min size of a group area to score; temporary value
 
-#                          R    G    B    A
-BLACK       = pygame.Color(0,   0,   0)
-WHITE       = pygame.Color(255, 255, 255)
-TAN         = pygame.Color(227, 195, 122)
-GRAY        = pygame.Color(128, 128, 128)
-GRAYALPHA   = pygame.Color(128, 128, 128, 100)
-RED         = pygame.Color(255, 0,   0)
-GREEN       = pygame.Color(0,   255, 0)
-LIGHTGRAY   = pygame.Color(200, 200, 200)
-BLUE        = pygame.Color(0,   0,   232)
+#                           R       G       B       A
+BLACK       = pygame.Color( 0,      0,      0           )
+WHITE       = pygame.Color( 255,    255,    255         )
+TAN         = pygame.Color( 227,    195,    122         )
+GRAY        = pygame.Color( 128,    128,    128         )
+GRAYALPHA   = pygame.Color( 128,    128,    128,    100 )
+RED         = pygame.Color( 255,    0,      0           )
+GREEN       = pygame.Color( 0,      255,    0           )
+LIGHTGRAY   = pygame.Color( 200,    200,    200         )
+BLUE        = pygame.Color( 0,      0,      232         )
+BLUE        = pygame.Color( 0,      0,      255         )
 
 TEXTCOLOR           = WHITE
 BOARDCOLOR          = TAN #background color of board, including margins
@@ -66,7 +69,8 @@ class button():
         pygame.draw.rect(DISPLAYSURF, self.color, (self.x, self.y, self.width, self.height), 0)
 
         if self.text != '':
-            font = pygame.font.SysFont('comicsans', 20)
+            #font = pygame.font.SysFont('comicsans', 20)
+            font = pygame.font.SysFont('system', 20) #temp replacement
             text = font.render(self.text, 1, (0, 0, 0))
             DISPLAYSURF.blit(text, (
             self.x + (self.width / 2 - text.get_width() / 2), self.y + (self.height / 2 - text.get_height() / 2)))
@@ -103,17 +107,18 @@ def main():
     global FONT
     pygame.init()
     pygame.display.set_caption('Continuous Go')
-    FONT = pygame.font.Font('freesansbold.ttf', 16)
+    #FONT = pygame.font.Font('freesansbold.ttf', 16)
+    FONT = pygame.font.SysFont('system', 20) #temp replacement
 
 
     board = getNewBoard() #keeps track of pixels drawn
     boardLines = [] #keeps track of lines drawn
-    magnetDist = 4 #starting mouse magnet distance, can adjust later
+    magnetDist = 4 #starting mouse magnet distance; user can adjust later
     turn = "black" #black always goes first
     turnLength = 0 #keeps track of the length of a turn
     click = []
     continuousDraw = False  #keeps track of whether the user is in the process of making a continuous draw
-    pixelsDrawn = []
+    pixelsDrawn = [] #a list of all drawn pixels in the order they are drawn
     drawBoard(boardLines, turn, turnLength, magnetDist)
     while True:
         for event in pygame.event.get():
@@ -128,14 +133,15 @@ def main():
                     if recentClick:
                         click.append(position)
                         if len(click) == 2:
-                            x = findLine(click[0], click[1], turn, board, turnLength)
-                            if len(x) > 0:
-                                for dot in x:
+                            newLine, turnComplete = findLine(click[0], click[1], turn, board, turnLength)
+                            if len(newLine) > 0:
+                                for dot in newLine:
                                     board[dot[1]][dot[0]] = turn
-                                    pixelsDrawn.append((dot[0], dot[1]))
-                                boardLines.append((x[0], x[-1], turn))
-                                turnLength += max(1, lineDistance(x[0], x[-1]))
-                                if turnLength >= (MAXDRAW * 0.97): #temporary threshold: figure out later
+                                    if (dot[0], dot[1]) not in pixelsDrawn:
+                                        pixelsDrawn.append((dot[0], dot[1]))
+                                boardLines.append((newLine[0], newLine[-1], turn))
+                                turnLength += max(1, lineDistance(newLine[0], newLine[-1]))
+                                if turnComplete or turnLength > MAXDRAW - 1:
                                     turn = opposite(turn)
                                     turnLength = 0
                                 drawBoard(boardLines, turn, turnLength, magnetDist)
@@ -144,16 +150,18 @@ def main():
                     continuousDraw = False
                 elif event.type == MOUSEMOTION:
                     if continuousDraw:
-                        x = findLine(startPosition, position, turn, board, turnLength)
+                        newLine, turnComplete = findLine(startPosition, position, turn, board, turnLength)
                         startPosition = position
-                        if len(x) > 0:
-                            for dot in x:
+                        if len(newLine) > 0:
+                            for dot in newLine:
                                 board[dot[1]][dot[0]] = turn
-                            boardLines.append((x[0], x[-1], turn))
-                            turnLength += lineDistance(x[0], x[-1])
-                            if x[-1] != position: #line has been cut off
+                                if (dot[0], dot[1]) not in pixelsDrawn:
+                                    pixelsDrawn.append((dot[0], dot[1]))
+                            boardLines.append((newLine[0], newLine[-1], turn))
+                            turnLength += lineDistance(newLine[0], newLine[-1])
+                            if newLine[-1] != position: #line has been cut off
                                 continuousDraw = False
-                            if turnLength >= (MAXDRAW * 0.97): #temporary threshold: figure out later
+                            if turnComplete or turnLength > MAXDRAW - 1:
                                 turn = opposite(turn)
                                 turnLength = 0
                                 continuousDraw = False
@@ -166,9 +174,9 @@ def main():
                         drawBoard(boardLines, turn, turnLength, magnetDist)
                         #pygame.display.update()
                         if len(click) == 1:
-                            x = findLine(click[0], position, turn, board, turnLength)
-                            if len(x) > 0:
-                                pygame.draw.line(DISPLAYSURF, PROJECTIONCOLOR, convertBoardToScreen(x[0]), convertBoardToScreen(x[-1]))
+                            newLine, turnComplete = findLine(click[0], position, turn, board, turnLength)
+                            if len(newLine) > 0:
+                                pygame.draw.line(DISPLAYSURF, PROJECTIONCOLOR, convertBoardToScreen(newLine[0]), convertBoardToScreen(newLine[-1]))
                     recentClick = False
             else:
                 if event.type == MOUSEBUTTONDOWN:
@@ -177,10 +185,10 @@ def main():
                     if recentClick:
                         position = pygame.mouse.get_pos()
                         if CHECKBLACKAREASBUTTON.isOver(position):
-                            checkAreas(board, "black")
+                            checkAreas(board, "black", pixelsDrawn)
                             drawBoard(boardLines, turn, turnLength, magnetDist)
                         elif CHECKWHITEAREASBUTTON.isOver(position):
-                            checkAreas(board, "white")
+                            checkAreas(board, "white", pixelsDrawn)
                             drawBoard(boardLines, turn, turnLength, magnetDist)
                         elif DECREASEMAGNETBUTTON.isOver(position):
                             if magnetDist > 0:
@@ -207,6 +215,7 @@ def main():
                             print(count)
                             '''
 
+                            click = []
                             scoredGame = scoreGame(board, pixelsDrawn)
                             board = scoredGame[0]
                             score = [scoredGame[1], scoredGame[2], scoredGame[3], scoredGame[4]]
@@ -229,6 +238,9 @@ def main():
                             boardLines = []
                             turn = "black"
                             turnLength = 0
+                            click = []
+                            drawBoard(boardLines, turn, turnLength, magnetDist)
+                        else:
                             click = []
                             drawBoard(boardLines, turn, turnLength, magnetDist)
                     recentClick = False
@@ -289,8 +301,9 @@ def crossThrough(first, second, turn, board):
             pixel2 = (first[0] - 1, first[1])
     return board[pixel1[1]][pixel1[0]] == opposite(turn) and board[pixel2[1]][pixel2[0]] == opposite(turn)
 
-def findLine(start, end, turn, board, turnLength):
+def findLine(start, end, turn, board, turnLength, turnComplete=False):
     #returns a line composed of pixels from start to end, cut off where appropriate
+    #also returns an indicator of whether the line was cut off because of exceeding the drawing limit
 
     #imitation of Pygame code for a line: https://github.com/pygame/pygame/blob/main/src_c/draw.c, line 1553
     x0 = start[0]
@@ -344,21 +357,35 @@ def findLine(start, end, turn, board, turnLength):
                 y0 += sy
         result.append((x1, y1))
 
-    #cut off line when a) goes outside margins, b) intersects opposing player's line, or c) goes past drawing length limit
+    #cut off illegal parts of the old line (result), to form a new one (newResult)
     i = 0
-    newResult = []
-    remainingLength = MAXDRAW - turnLength
+    #do not start the line until it is both within the margins and not over top of one of the opposing player's lines
     while i < len(result) and ((not isInsideMargins(result[i])) or board[result[i][1]][result[i][0]] == opposite(turn)):
         i += 1
+
+    newResult = []
     if i != len(result):
         newResult.append(result[i])
         i += 1
+
+    #cut off line when a) goes outside margins, b) intersects opposing player's line, or c) goes past drawing length limit
+    remainingLength = MAXDRAW - turnLength
     while i < len(result) and isInsideMargins(result[i]) and lineDistance(newResult[0], result[i]) <= remainingLength and board[result[i][1]][result[i][0]] != opposite(turn) and not crossThrough(result[i - 1], result[i], turn, board):
         newResult.append(result[i])
         i += 1
+
+    #line is being cut off because the drawing limit has been exceeded
+    if i < len(result) and isInsideMargins(result[i]) and lineDistance(newResult[0], result[i]) > remainingLength:
+        turnComplete = True
+
+    #line is being cut off for another reason
+    elif i < len(result):
+        turnComplete = False
+
     if len(newResult) > 0 and (newResult[0] != start or newResult[-1] != end): #the line to draw has been shortened
-        return findLine(newResult[0], newResult[-1], turn, board, turnLength) #redo algorithm on this new range
-    return newResult
+        return findLine(newResult[0], newResult[-1], turn, board, turnLength, turnComplete) #redo algorithm on this new range in case newResult does not form a legitimate line
+
+    return newResult, turnComplete
 
 def convertColor(col):
     # converts turn to color
@@ -405,6 +432,7 @@ def drawBoard(boardLines, turn, turnLength, magnetDist):
     #draw the lines on the board created by the players
     for i in boardLines:
         pygame.draw.line(DISPLAYSURF, convertColor(i[2]), convertBoardToScreen(i[0]), convertBoardToScreen(i[1]))
+        #pygame.draw.line(DISPLAYSURF, convertColor(i[2]), convertBoardToScreen(i[0]), convertBoardToScreen(i[1]), 2)
 
     #draw informational text about the state of the game
     drawTurn(turn)
@@ -1053,12 +1081,76 @@ def scoreGame(board, pixelsDrawn):
 
 
 
-def checkAreas(board, color):
-    #run a game loop where the user can click on sections to get the areas
-    tempBoard = copy.deepcopy(board)
+def checkAreas(board, color, pixelsDrawn):
+    #runs a game loop where the user can click on sections to get the areas
+    if len(board) == 0 or len(board[0]) == 0:
+        return
+
+    #identifies locations where lines of opposite color cross each other and finds which line was drawn first in these locations
+    crossings = set()
+    for j in range(len(board) - 1):
+        for i in range(len(board[0]) - 1):
+            if board[j][i] == "black" and board[j + 1][i] == "white" and board[j][i + 1] == "white" and board[j + 1][i + 1] == "black":
+                a = pixelsDrawn.index((i, j))
+                b = pixelsDrawn.index((i, j + 1))
+                c = pixelsDrawn.index((i + 1, j))
+                d = pixelsDrawn.index((i + 1, j + 1))
+                if (a > b and a > c) or (d > b and d > c):
+                    crossings.add((i, j, "white"))
+                else:
+                    crossings.add((i, j, "black"))
+            elif board[j][i] == "white" and board[j + 1][i] == "black" and board[j][i + 1] == "black" and board[j + 1][i + 1] == "white":
+                a = pixelsDrawn.index((i, j))
+                b = pixelsDrawn.index((i, j + 1))
+                c = pixelsDrawn.index((i + 1, j))
+                d = pixelsDrawn.index((i + 1, j + 1))
+                if (a > b and a > c) or (d > b and d > c):
+                    crossings.add((i, j, "black"))
+                else:
+                    crossings.add((i, j, "white"))
+
+    #divides the board into sections for the given color via floodFillSection
+    sections = [] #list of sections segmented by the given color's pixels
+    filled = set() #set of pixels checked for the given color's segmentation already
+    for j in range(len(board)):
+        for i in range(len(board[0])):
+            if board[j][i] != color and (i, j) not in filled:
+                newSection = floodFillSection(board, (i, j), color)
+                sections.append(newSection)
+                filled.update(newSection[0])
+
+    #combines sections that should connect across a crossing
+    for i in crossings:
+        x = i[0]
+        y = i[1]
+        if i[2] == opposite(color):
+            if board[y][x] == i[2]:
+                for j in sections:
+                    if (x, y) in j[0]:
+                        if (x + 1, y + 1) not in j[0]:
+                            for k in sections:
+                                if (x + 1, y + 1) in k[0]:
+                                    sections.append((j[0].union(k[0]), j[1].union(k[1])))
+                                    sections.remove(j)
+                                    sections.remove(k)
+                                    break
+                        break
+            else: #board[y][x] == opposite(i[2])
+                for j in sections:
+                    if (x + 1, y) in j[0]:
+                        if (x, y + 1) not in j[0]:
+                            for k in sections:
+                                if (x, y + 1) in k[0]:
+                                    sections.append((j[0].union(k[0]), j[1].union(k[1])))
+                                    sections.remove(j)
+                                    sections.remove(k)
+                                    break
+                        break
+
+    tempBoard = copy.deepcopy(board) #temporary board to display the checked areas
     drawScoredBoard(tempBoard, True)
     RESUMEBUTTON.draw()
-    filledSections = []
+    filledSections = [] #keeps track of sections that have already been filled in
     while True:
         for event in pygame.event.get():
             position = convertScreenToBoard(pygame.mouse.get_pos())
@@ -1069,26 +1161,23 @@ def checkAreas(board, color):
                     if recentClick:
                         if board[position[1]][position[0]] != color: #have not clicked on territory's boundary, so can proceed to fill or unfill
                             if tempBoard[position[1]][position[0]] != "green":
-                                x = floodFillSection(board, position, color)
-                                newSection = x[0].union(x[1])
-                                filledSections.append(newSection)
-                                for i in newSection:
-                                    tempBoard[i[1]][i[0]] = "green"
-                            else:
-                                breakLoop = False
-                                for i in filledSections:
-                                    for j in i:
-                                        if j == position:
-                                            filledSections.remove(i)
-                                            tempBoard = copy.deepcopy(board)
-                                            for a in filledSections:
-                                                for b in a:
-                                                    tempBoard[b[1]][b[0]] = "green"
-                                            breakLoop = True
-                                            break
-                                    if breakLoop:
-                                        breakLoop = False
+                                for i in sections:
+                                    if position in i[0]:
+                                        newSection = i[0].union(i[1])
+                                        filledSections.append(newSection)
+                                        for j in newSection:
+                                            tempBoard[j[1]][j[0]] = "green"
                                         break
+                            else:
+                                for i in filledSections:
+                                    if position in i:
+                                        filledSections.remove(i)
+                                        tempBoard = copy.deepcopy(board)
+                                        for a in filledSections:
+                                            for b in a:
+                                                tempBoard[b[1]][b[0]] = "green"
+                                        break
+
                             drawScoredBoard(tempBoard, True)
                             RESUMEBUTTON.draw()
 
@@ -1098,9 +1187,6 @@ def checkAreas(board, color):
                                 for j in i:
                                     if j == "green":
                                         score += 1
-                            #score = 0
-                            #for i in filledSections:
-                            #    score += len(i)
 
                             score = score / SQUARE
 
@@ -1136,16 +1222,25 @@ if __name__ == '__main__':
     main()
 
 #to do:
-    #revise 0.97 threshold
-        #with higher threshold, sometimes mistakenly left with very small draw after what should be a full line
+    #fill in tiny gaps (of one pixel; between user's drawing and (previous drawings or board edge)) at beginning and end of a draw to assist user
+        #condsider larger gaps also, possibly using weaving tool
     #check if need to pump
     #figure out gridline color (GRAYALPHA)
     #determine if better way to write text than current FONT method
     #make sure displays work with different screen sizes
     #figure out resizing/zooming
     #add line weaving function
+        #implement A* function
     #add ability to undo turns
     #force end game, consider disallowing drawing over what has already been drawn
     #condsider tool to check area of neutral territory
     #fix game loop: should use both while True and for event?; goal: should have low use when doing nothing
+        #both in main and checkAreas
     #somehow make it easier to check for tiny gaps in lines
+    #add a game clock
+    #experiment with aesthetics of different line thicknesses (and whether they work)
+    #consider making clicking smoother (by tracking distance of mouse movement after click, and counting very small distances as just a click)
+    #fine tune SCORETHRESHOLD and possibly also KOMI and MAXDRAW
+    #scale board features to size of screen
+        #including magnet range and initial strength
+    #make sure buttons are readable on different computers
